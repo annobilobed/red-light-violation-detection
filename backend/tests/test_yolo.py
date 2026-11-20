@@ -27,3 +27,13 @@ def test_unknown_classes_rejected():
     from app.pipeline.detectors import YoloTracker
     with pytest.raises(ValueError):
         YoloTracker(DetectorConfig(model=str(WEIGHTS), vehicle_classes=["tuk-tuk"]))
+
+
+@pytest.mark.parametrize("tracker", ["bytetrack", "botsort_static", "botsort_reid", "botsort"])
+def test_every_tracker_runs(tracker):
+    from app.pipeline.config import DetectorConfig
+    from app.pipeline.detectors import YoloTracker
+    tr = YoloTracker(DetectorConfig(model=str(WEIGHTS), tracker=tracker))
+    tr.reset()
+    assert tr.track(np.zeros((360, 640, 3), np.uint8), 0) == []
+    assert tracker in tr.name

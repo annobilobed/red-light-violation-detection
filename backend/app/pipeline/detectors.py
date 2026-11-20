@@ -23,6 +23,25 @@ from .crossing import Detection
 
 log = logging.getLogger(__name__)
 
+_TRACKER_DIR = Path(__file__).parent / "trackers"
+# id -> (Ultralytics tracker config, label)
+TRACKERS: dict[str, tuple[str, str]] = {
+    "bytetrack": ("bytetrack.yaml", "ByteTrack (default)"),
+    "botsort_static": (str(_TRACKER_DIR / "botsort_static.yaml"), "BoT-SORT, fixed camera (no motion compensation)"),
+    "botsort_reid": (str(_TRACKER_DIR / "botsort_reid.yaml"), "BoT-SORT, fixed camera + appearance re-ID"),
+    "botsort": ("botsort.yaml", "BoT-SORT, stock (with camera motion compensation)"),
+}
+
+
+def resolve_tracker(name: str) -> str:
+    """Tracker id ('bytetrack', 'botsort_static', ...) or a .yaml path/name."""
+    key = name.removesuffix(".yaml") if name in ("bytetrack.yaml", "botsort.yaml") else name
+    if key in TRACKERS:
+        return TRACKERS[key][0]
+    if name.endswith(".yaml"):
+        return name
+    raise ValueError(f"unknown tracker {name!r}; choose one of {sorted(TRACKERS)} or a .yaml file")
+
 
 class Tracker(Protocol):
     name: str
@@ -55,7 +74,9 @@ class YoloTracker:
             raise ValueError(
                 f"Model {cfg.model} has none of the vehicle classes {sorted(wanted)}; "
                 f"its classes are {sorted(set(self.names.values()))}")
-        self.name = f"yolo:{Path(cfg.model).name}"
+        self.tracker_cfg = resolve_tracker(cfg.tracker)
+        tname = Path(cfg.tracker).stem if cfg.tracker.endswith(".yaml") else cfg.tracker
+        self.name = f"yolo:{Path(cfg.model).name}+{tname}"
 
     def reset(self) -> None:
         # Clears ByteTrack state so IDs restart for a new video.
@@ -66,7 +87,7 @@ class YoloTracker:
 
     def track(self, frame_bgr: np.ndarray, frame_idx: int) -> list[Detection]:
         results = self.model.track(
-            frame_bgr, persist=True, tracker=self.cfg.tracker, conf=self.cfg.conf,
+            frame_bgr, persist=True, tracker=self.tracker_cfg, conf=self.cfg.conf,
             iou=self.cfg.iou, imgsz=self.cfg.imgsz, classes=self.class_ids,
             device=self.cfg.device, verbose=False)
         if not results:

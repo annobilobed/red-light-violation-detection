@@ -31,7 +31,7 @@ from .pipeline.accident import make_sequence
 from .pipeline.calibration import calibrate as calibrate_thresholds
 from .pipeline.config import AnalysisConfig, SignalConfig
 from .pipeline.crossing import Crossing
-from .pipeline.detectors import make_tracker, scenario_path_for
+from .pipeline.detectors import TRACKERS, make_tracker, resolve_tracker, scenario_path_for
 from .pipeline.evidence import (TrackStore, ffmpeg_available, probe_video, read_frame_at,
                                 render_event_evidence, render_snapshot)
 from .pipeline.privacy import MODES as ANON_MODES
@@ -261,9 +261,12 @@ class Service:
     # ------------------------------------------------------------------
     # Analyses
     # ------------------------------------------------------------------
+    def list_trackers(self) -> list[dict]:
+        return [{"id": k, "label": v[1]} for k, v in TRACKERS.items()]
+
     def start_analysis(self, vid: int, model: Optional[str] = None, conf: Optional[float] = None,
                        frame_stride: Optional[int] = None, device: Optional[str] = None,
-                       imgsz: Optional[int] = None) -> dict:
+                       imgsz: Optional[int] = None, tracker: Optional[str] = None) -> dict:
         path = self._video_path(vid)
         cfg = AnalysisConfig.from_dict(self.get_config(vid))
         if model:
@@ -276,6 +279,12 @@ class Service:
             cfg.detector.device = device
         if imgsz:
             cfg.detector.imgsz = int(imgsz)
+        if tracker:
+            try:
+                resolve_tracker(tracker)
+            except ValueError as exc:
+                raise BadRequest(str(exc)) from exc
+            cfg.detector.tracker = tracker
         problems = cfg.validate()
         if problems:
             raise BadRequest("Configuration incomplete: " + " ".join(problems))

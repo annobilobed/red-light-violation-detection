@@ -5,19 +5,21 @@ import { ErrorBox, Empty, Progress, VideoPicker, useInterval } from "../componen
 export default function Analyse({ videos, videoId, setVideoId, analyses, reloadAnalyses, go }) {
   const video = videos.find((v) => v.id === videoId);
   const [models, setModels] = useState([]);
+  const [trackers, setTrackers] = useState([]);
   const [opts, setOpts] = useState({ model: "", conf: "", frame_stride: "", device: "" });
   const [error, setError] = useState(null);
   const running = analyses.some((a) => a.status === "running" || a.status === "queued");
 
   useEffect(() => {
     api.get("/api/models").then(setModels).catch(() => {});
+    api.get("/api/trackers").then(setTrackers).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!videoId) return;
     api
       .get(`/api/videos/${videoId}/config`)
-      .then(({ config }) => setOpts({ model: config.detector.model, conf: config.detector.conf, frame_stride: config.frame_stride, device: config.detector.device || "" }))
+      .then(({ config }) => setOpts({ model: config.detector.model, tracker: config.detector.tracker.replace(".yaml", ""), conf: config.detector.conf, frame_stride: config.frame_stride, device: config.detector.device || "" }))
       .catch(() => {});
   }, [videoId]);
 
@@ -29,6 +31,7 @@ export default function Analyse({ videos, videoId, setVideoId, analyses, reloadA
       await api.post("/api/analyses", {
         video_id: videoId,
         model: opts.model || null,
+        tracker: opts.model === "scripted" ? null : opts.tracker || null,
         conf: opts.conf === "" ? null : Number(opts.conf),
         frame_stride: opts.frame_stride === "" ? null : Number(opts.frame_stride),
         device: opts.device || null,
@@ -64,6 +67,16 @@ export default function Analyse({ videos, videoId, setVideoId, analyses, reloadA
               {usable.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Tracker</span>
+            <select value={opts.tracker || "bytetrack"} disabled={opts.model === "scripted"} onChange={(e) => setOpts({ ...opts, tracker: e.target.value })}>
+              {trackers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
                 </option>
               ))}
             </select>

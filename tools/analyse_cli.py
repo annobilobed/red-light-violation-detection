@@ -32,6 +32,7 @@ def main(argv=None) -> int:
     ap.add_argument("video")
     ap.add_argument("--config", required=True, help="AnalysisConfig JSON")
     ap.add_argument("--model", help="override detector model (yolo11n.pt, yolo11m.pt, path/to/best.pt, scripted)")
+    ap.add_argument("--tracker", help="bytetrack | botsort_static | botsort_reid | botsort | path.yaml")
     ap.add_argument("--conf", type=float)
     ap.add_argument("--stride", type=int)
     ap.add_argument("--device")
@@ -45,6 +46,8 @@ def main(argv=None) -> int:
         cfg.detector.model = args.model
     if args.conf is not None:
         cfg.detector.conf = args.conf
+    if args.tracker:
+        cfg.detector.tracker = args.tracker
     if args.stride:
         cfg.frame_stride = args.stride
     if args.device:

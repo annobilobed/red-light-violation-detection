@@ -42,6 +42,7 @@ def analysis(client, video):
 def test_health_and_models(client):
     h = client.get("/api/health").json()
     assert h["status"] == "ok"
+    assert [t["id"] for t in client.get("/api/trackers").json()][0] == "bytetrack"
     ids = [m["id"] for m in client.get("/api/models").json()]
     assert "yolo11n.pt" in ids and "yolo11m.pt" in ids
 
@@ -225,6 +226,11 @@ def test_cancel_and_delete(client, video):
     assert a["status"] in ("cancelled", "done")
     assert client.delete(f"/api/analyses/{aid}").status_code == 204
     assert client.get(f"/api/analyses/{aid}").status_code == 404
+
+
+def test_bad_tracker_rejected(client, video):
+    r = client.post("/api/analyses", json={"video_id": video["id"], "model": "scripted", "tracker": "deepsort"})
+    assert r.status_code == 400 and "unknown tracker" in r.json()["detail"]
 
 
 def test_not_found(client):

@@ -83,7 +83,8 @@ class DetectorConfig:
     iou: float = 0.5
     imgsz: int = 640
     device: Optional[str] = None
-    tracker: str = "bytetrack.yaml"
+    # bytetrack | botsort_static | botsort_reid | botsort (see detectors.TRACKERS)
+    tracker: str = "bytetrack"
     vehicle_classes: list[str] = field(default_factory=lambda: list(DEFAULT_VEHICLE_CLASSES))
 
 

@@ -48,6 +48,7 @@ class AnalysisRequest(BaseModel):
     frame_stride: Optional[int] = Field(None, ge=1, le=30)
     device: Optional[str] = None
     imgsz: Optional[int] = Field(None, ge=160, le=1920)
+    tracker: Optional[str] = None
 
 
 class Review(BaseModel):
@@ -111,6 +112,10 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
     def models():
         return svc.list_models()
 
+    @app.get("/api/trackers")
+    def trackers():
+        return svc.list_trackers()
+
     # ---------------- videos ----------------
     @app.post("/api/videos", status_code=201)
     def upload_video(file: UploadFile = File(...), location: str = Form(""), is_cape_coast: bool = Form(False),
@@ -158,7 +163,8 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
     # ---------------- analyses ----------------
     @app.post("/api/analyses", status_code=201)
     def start_analysis(body: AnalysisRequest):
-        return svc.start_analysis(body.video_id, body.model, body.conf, body.frame_stride, body.device, body.imgsz)
+        return svc.start_analysis(body.video_id, body.model, body.conf, body.frame_stride, body.device, body.imgsz,
+                                  body.tracker)
 
     @app.get("/api/analyses")
     def list_analyses(video_id: Optional[int] = None):
