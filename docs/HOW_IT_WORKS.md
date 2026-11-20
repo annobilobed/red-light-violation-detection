@@ -1,6 +1,20 @@
 # How it works
 
-This document explains every component, in the order the data flows. File paths are relative to the repository root.
+## In plain terms
+
+The system watches a **recorded** video of one approach to a signalised junction and lists the vehicles that **may** have run the red light, so that a person can check each one.
+
+1. **You set up the camera view once.** On a frame of the video you draw the stop line, show which side vehicles come from, and draw a box around the traffic light that controls that approach. You label a few frames as red, amber or green, and the system tunes its colour reading to that camera.
+2. **It finds and follows vehicles.** A lightweight detector (YOLO11n) finds cars, motorcycles, buses and trucks in every frame, and a tracker (ByteTrack by default) gives each vehicle the same number from frame to frame.
+3. **It reads the traffic light.** In the box you drew, it checks which lamp is lit by its colour and brightness. If it cannot tell, it says **"uncertain"** and never guesses.
+4. **It checks the stop line.** When a tracked vehicle's front-bottom point crosses the stop line, it records the exact moment.
+5. **It applies the rule.** A crossing is flagged only if it happened **after the light turned red**. A vehicle that crossed on green or amber and is still in the junction at red is lawful. A crossing while the light was unreadable is listed separately and never flagged.
+6. **A person reviews every alert.** Each alert comes with a short clip and a still. A reviewer confirms, rejects or marks it unsure. Until then it is only a **potential** violation.
+7. **Reports and privacy.** Results can be exported as CSV and PDF. Evidence for sharing is automatically blurred (faces, people's heads, number plates, drivers), and a person signs off each blurred image before publication. Plates are never read and nobody is identified.
+
+The four parts that can make mistakes (vehicle detection, tracking, light reading, and the final alert) are measured **separately** against hand-labelled Cape Coast footage with the scripts in `evaluation/`.
+
+The rest of this document explains every component in the order the data flows. File paths are relative to the repository root.
 
 ## 1. Configuration (`backend/app/pipeline/config.py`)
 
@@ -10,11 +24,15 @@ One `AnalysisConfig` describes **one camera view with one approach**:
 |---|---|---|
 | `signal` | `roi`, `layout`, `lamps` | Signal-head box. `vertical` splits it into thirds (red on top), `horizontal` into thirds (red on the left), and `custom` uses one box per lamp. |
 | | `sat_min`, `val_min`, `min_score`, `margin` | HSV colour thresholds (section 3) |
+| | `core_agreement`, `core_val`, `core_min`, `core_margin`, `weak_min` | Reading over-exposed lamps (section 3) |
+| | `peak_min` | Safety guard: a lit lamp must be bright (section 3) |
 | | `brightness_fallback`, `brightness_ratio` | Optional night fallback (off by default) |
+| | `reader`, `classifier`, `classifier_conf` | Optional CNN classifier: `hsv`, `cnn`, `hybrid`, `agree` (section 3) |
+| | `samples` | Frames a person labelled for calibration |
 | | `min_stable_frames`, `bridge_gap_s` | Temporal smoothing (section 3) |
 | `crossing` | `stop_line`, `approach_point`, `approach_zone` | Geometry of the approach |
 | | `line_margin_px`, `min_approach_frames`, `segment_tolerance`, `red_grace_s` | Crossing test and decision rule (section 4) |
-| `detector` | `model`, `conf`, `iou`, `imgsz`, `device`, `tracker`, `vehicle_classes` | YOLO + ByteTrack |
+| `detector` | `model`, `conf`, `iou`, `imgsz`, `device`, `tracker`, `vehicle_classes` | YOLO (PyTorch, OpenVINO or ONNX) + tracker (section 2) |
 | `evidence` | `pre_s`, `post_s`, `include_signal_uncertain`, `h264` | Clips |
 | `frame_stride` | | Process every n-th frame |
 
@@ -114,7 +132,7 @@ Files written to `out_dir`: `result.json`, `tracks.npz` (all detections), `signa
 
 ## 6. Evidence (`pipeline/evidence.py`, `pipeline/annotate.py`)
 
-Clips cover `pre_s` before to `post_s` after the crossing at the original frame rate, with the stop line, lamp boxes, signal state, all tracked vehicles and the flagged vehicle highlighted. The banner reads "POTENTIAL red-light violation – for human review". Clips are written with OpenCV, then re-encoded to H.264/yuv420p with `ffmpeg` so browsers can play them. Without `ffmpeg` they stay MPEG-4 Part 2 and may not play in browsers; the dashboard warns about this.
+Clips cover `pre_s` before to `post_s` after the crossing at the original frame rate, with the stop line, lamp boxes, signal state, all tracked vehicles and the flagged vehicle highlighted. The banner reads "POTENTIAL red-light violation – for human review". Clips are written with OpenCV, then re-encoded to H.264/yuv420p with `ffmpeg` so browsers can play them. `ffmpeg` is taken from the PATH or, if missing, from the `imageio-ffmpeg` package (installed by `requirements.txt`). Only if neither exists do clips stay MPEG-4 Part 2, which may not play in browsers; the dashboard warns about this.
 
 ## 7. Privacy (`pipeline/privacy.py`)
 
@@ -141,7 +159,9 @@ SQLite tables: `videos` (with `location`, `session`, `is_cape_coast`, saved conf
 
 Analyses run one at a time in a background thread pool. Progress is written to the DB and polled by the dashboard. Jobs interrupted by a server restart are marked failed.
 
-Main routes (all under `/api`, interactive docs at `/docs`): `videos` (upload, list, patch, delete, `frame?t=`, `config`, `signal-test`), `analyses` (start, list, cancel, delete, `signal-segments`, `summary`, `export.csv`, `export.pdf`, `export-evidence`), `events` (list with filters, `review`, `snapshot`, `clip`), `accident`, `files/…` (exports and accident outputs only, with path checks), `models`, `health`.
+Main routes (all under `/api`, interactive docs at `/docs`): `videos` (upload, list, patch, delete, `frame?t=`, `config`, `signal-test`, `signal-calibrate`), `analyses` (start with model and tracker, list, cancel, delete, `signal-segments`, `summary`, `export.csv`, `export.pdf`, `export-evidence`), `events` (list with filters, `review`, `anon-check`, `snapshot` (optionally `?anonymise=`), `clip`), `accident`, `files/…` (exports and accident outputs only, with path checks), `models`, `trackers`, `signal-classifiers`, `health` (reports ffmpeg and which face detector is active).
+
+Older databases are upgraded automatically when new columns are added.
 
 ## 10. Reports (`reports.py`)
 
@@ -149,8 +169,20 @@ CSV columns include `cape_coast_footage`, `outcome`, signal state, red onset, ti
 
 ## 11. Dashboard (`frontend/src/`)
 
-React, bundled with esbuild into `backend/app/static/`. Pages: Videos, Configure (SVG overlay in video-pixel coordinates; drawing tools; signal test), Analyse, Review (keyboard review), Reports, Accident (exploratory). The persistent notice and the Cape Coast badges enforce the wording rules.
+React, bundled with esbuild into `backend/app/static/`. Pages:
+- **Videos**: upload, location, session, Cape Coast flag.
+- **Configure**: SVG overlay in video-pixel coordinates with drawing tools (stop line, approach side, signal box, approach zone); signal reader settings; single-frame **Test signal reading**; the **calibration** panel (label frames, find thresholds, apply).
+- **Analyse**: model (including OpenVINO exports), tracker, confidence, frame stride; background jobs with progress and speed.
+- **Review**: clip and still per event, keyboard review (`c` `r` `u`, `j` `k`), and the **anonymisation check** with sign-off.
+- **Reports**: summary, signal timeline, CSV, PDF, evidence ZIP (optionally signed-off events only).
+- **Accident (exploratory)**.
+
+The persistent notice and the Cape Coast badges enforce the wording rules.
 
 ## 12. Synthetic test video (`tools/make_synthetic_video.py`)
 
 A 60 s, 15 fps top-down junction with a scripted signal cycle (G 0–12, A 12–15, R 15–30, G 30–42, A 42–45, R 45–60 s), single-frame LED flicker, a 2 s occlusion of the signal, and 12 vehicles. Each vehicle covers one rule: lawful on green or amber; entered on amber and still in the junction at red; 0.1 s before red; 1, 3 and 9 s after red; stopped at the line and went on green; oncoming traffic off the stop line; crossing while the signal is hidden. It is test material only and never a result.
+
+## 13. Deployment (`Dockerfile`)
+
+A CPU image that needs no system packages (ffmpeg from `imageio-ffmpeg`, headless OpenCV) and bakes in YOLO11n and the face detector, so it runs offline. It was built and run here with networking disabled: the health check passed, the full test suite passed inside the container, and a YOLO analysis completed.
