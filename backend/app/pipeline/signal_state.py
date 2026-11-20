@@ -14,6 +14,7 @@ Temporal smoothing (``smooth_states``) is done offline over the whole video:
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -68,7 +69,10 @@ class SignalReading:
     core: dict[str, float]         # share of very bright pixels (V >= core_val)
     brightness: dict[str, float]   # mean V
     peak: dict[str, float]         # 95th percentile of V
-    method: str  # "colour", "core+colour", "brightness" or "none"
+    method: str  # "colour", "core+colour", "brightness", "cnn", "hybrid", "agree" or "none"
+    hsv_state: Optional[str] = None
+    cnn_label: Optional[str] = None
+    cnn_conf: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -78,6 +82,9 @@ class SignalReading:
             "brightness": {k: round(v, 1) for k, v in self.brightness.items()},
             "peak": {k: round(v, 1) for k, v in self.peak.items()},
             "method": self.method,
+            "hsv_state": self.hsv_state,
+            "cnn_label": self.cnn_label,
+            "cnn_conf": None if self.cnn_conf is None else round(self.cnn_conf, 4),
         }
 
 
@@ -161,8 +168,66 @@ def read_signal(frame_bgr: np.ndarray, cfg: SignalConfig) -> SignalReading:
     st, me = decide_arrays(arr(scores), arr(core), arr(brightness), arr(peak),
                            decision_params(cfg))
     state = COLOURS[st[0]] if st[0] >= 0 else UNCERTAIN
-    return SignalReading(state=state, scores=scores, core=core, brightness=brightness, peak=peak,
-                         method=METHODS[me[0]])
+    reading = SignalReading(state=state, scores=scores, core=core, brightness=brightness, peak=peak,
+                            method=METHODS[me[0]], hsv_state=state)
+    if cfg.reader != "hsv" and cfg.classifier:
+        label, conf = get_signal_classifier(cfg.classifier).predict(signal_crop(frame_bgr, cfg))
+        reading.cnn_label, reading.cnn_conf = label, conf
+        reading.state, reading.method = combine(state, label, conf, cfg.reader, cfg.classifier_conf)
+    return reading
+
+
+def combine(hsv_state: str, cnn_label: str, cnn_conf: float, reader: str, conf_min: float) -> tuple[str, str]:
+    """Merge the colour-rule reading with the classifier's (see SignalConfig.reader)."""
+    cnn_state = cnn_label if (cnn_label in COLOURS and cnn_conf >= conf_min) else UNCERTAIN
+    cnn_says_none = cnn_label == "none" and cnn_conf >= conf_min
+    if reader == "cnn":
+        return cnn_state, ("cnn" if cnn_state != UNCERTAIN else "none")
+    if reader == "agree":
+        ok = cnn_state != UNCERTAIN and cnn_state == hsv_state
+        return (hsv_state, "agree") if ok else (UNCERTAIN, "none")
+    # hybrid
+    if hsv_state != UNCERTAIN and cnn_state != UNCERTAIN:
+        return (hsv_state, "hybrid") if hsv_state == cnn_state else (UNCERTAIN, "none")
+    if hsv_state != UNCERTAIN:
+        return (UNCERTAIN, "none") if cnn_says_none else (hsv_state, "hybrid")
+    if cnn_state != UNCERTAIN:
+        return cnn_state, "hybrid"
+    return UNCERTAIN, "none"
+
+
+def signal_crop(frame_bgr: np.ndarray, cfg: SignalConfig) -> np.ndarray:
+    """The signal-head region (bounding box of the lamp rectangles)."""
+    rects = list(lamp_rects(cfg).values())
+    h, w = frame_bgr.shape[:2]
+    x0 = max(0, min(r[0] for r in rects))
+    y0 = max(0, min(r[1] for r in rects))
+    x1 = min(w, max(r[0] + r[2] for r in rects))
+    y1 = min(h, max(r[1] + r[3] for r in rects))
+    return frame_bgr[y0:y1, x0:x1]
+
+
+class SignalClassifier:
+    """YOLO classification model with classes red/amber/green/none."""
+
+    def __init__(self, weights: str):
+        from ultralytics import YOLO
+        self.model = YOLO(weights, task="classify")
+        names = self.model.names if isinstance(self.model.names, dict) else dict(enumerate(self.model.names))
+        self.names = {int(k): str(v) for k, v in names.items()}
+        if set(self.names.values()) != {"red", "amber", "green", "none"}:
+            raise ValueError(f"signal classifier must have classes red, amber, green, none; has {sorted(self.names.values())}")
+
+    def predict(self, crop: np.ndarray) -> tuple[str, float]:
+        if crop.size == 0:
+            return "none", 0.0
+        r = self.model.predict(crop, verbose=False)[0]
+        return self.names[int(r.probs.top1)], float(r.probs.top1conf)
+
+
+@functools.lru_cache(maxsize=4)
+def get_signal_classifier(weights: str) -> SignalClassifier:
+    return SignalClassifier(weights)
 
 
 def classify_scores(scores: dict[str, float], min_score: float, margin: float) -> str:

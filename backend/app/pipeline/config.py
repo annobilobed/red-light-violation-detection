@@ -50,6 +50,14 @@ class SignalConfig:
     min_stable_frames: int = 3      # shorter colour runs become "uncertain"
     bridge_gap_s: float = 0.5       # uncertain gaps this short, with the SAME
                                     # colour on both sides, take that colour
+    # Optional CNN classifier (evaluation/train_signal_classifier.py).
+    # reader: "hsv" (colour rules only), "cnn" (classifier only), "hybrid"
+    # (combined; a conflict gives "uncertain"; a confident "none" from the
+    # classifier vetoes the colour rules) or "agree" (both must agree).
+    reader: str = "hsv"
+    classifier: Optional[str] = None
+    # 0.9 removed the only wrong colour on the real held-out crops (0.8 had one).
+    classifier_conf: float = 0.9
     # Frames a person labelled for calibration: [{"t": 12.4, "state": "red"}, ...]
     samples: list[dict] = field(default_factory=list)
 
@@ -134,6 +142,12 @@ class AnalysisConfig:
         r = self.signal.roi
         if self.signal.layout != "custom" and (len(r) != 4 or r[2] <= 2 or r[3] <= 2):
             problems.append("Signal region is not set.")
+        if self.signal.reader not in ("hsv", "cnn", "hybrid", "agree"):
+            problems.append("Signal reader must be hsv, cnn, hybrid or agree.")
+        elif self.signal.reader != "hsv":
+            from pathlib import Path
+            if not self.signal.classifier or not Path(self.signal.classifier).exists():
+                problems.append("The CNN signal reader needs a trained classifier file (signal.classifier).")
         if self.signal.layout == "custom":
             lamps = self.signal.lamps or {}
             for c in ("red", "amber", "green"):

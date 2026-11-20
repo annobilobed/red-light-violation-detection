@@ -267,6 +267,10 @@ class Service:
     # ------------------------------------------------------------------
     # Analyses
     # ------------------------------------------------------------------
+    def list_signal_classifiers(self) -> list[dict]:
+        """Trained signal classifiers placed in <data>/models/ (name contains 'signal')."""
+        return [{"id": str(p), "label": p.name} for p in sorted((self.data / "models").glob("*signal*.pt"))]
+
     def list_trackers(self) -> list[dict]:
         return [{"id": k, "label": v[1]} for k, v in TRACKERS.items()]
 

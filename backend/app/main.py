@@ -112,6 +112,10 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
     def models():
         return svc.list_models()
 
+    @app.get("/api/signal-classifiers")
+    def signal_classifiers():
+        return svc.list_signal_classifiers()
+
     @app.get("/api/trackers")
     def trackers():
         return svc.list_trackers()

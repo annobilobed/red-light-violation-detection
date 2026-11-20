@@ -30,9 +30,11 @@ export default function Configure({ videos, videoId, setVideoId }) {
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
   const [models, setModels] = useState([]);
+  const [classifiers, setClassifiers] = useState([]);
 
   useEffect(() => {
     api.get("/api/models").then(setModels).catch(() => {});
+    api.get("/api/signal-classifiers").then(setClassifiers).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -131,6 +133,39 @@ export default function Configure({ videos, videoId, setVideoId }) {
           <div className="configure-side">
             <section className="card">
               <h3>Signal reading</h3>
+              <div className="grid2">
+                <label className="field small">
+                  <span>Reader</span>
+                  <select value={config.signal.reader} onChange={(e) => upd("signal", "reader", e.target.value)}>
+                    <option value="hsv">Colour rules (HSV)</option>
+                    <option value="hybrid" disabled={!classifiers.length}>Hybrid: rules + CNN (conflict = uncertain)</option>
+                    <option value="agree" disabled={!classifiers.length}>Agree: rules and CNN must agree (safest)</option>
+                    <option value="cnn" disabled={!classifiers.length}>CNN classifier only</option>
+                  </select>
+                </label>
+                {config.signal.reader !== "hsv" && (
+                  <label className="field small">
+                    <span>Classifier</span>
+                    <select value={config.signal.classifier || ""} onChange={(e) => upd("signal", "classifier", e.target.value || null)}>
+                      <option value="">Choose…</option>
+                      {classifiers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+              {config.signal.reader !== "hsv" && (
+                <Num label="Classifier confidence min" value={config.signal.classifier_conf} step={0.05} min={0.5} max={0.99} onChange={(v) => upd("signal", "classifier_conf", v)} />
+              )}
+              {!classifiers.length && (
+                <p className="muted small">
+                  No trained signal classifier yet. Train one on your crops (evaluation/train_signal_classifier.py) and put it in backend/data/models/ with
+                  "signal" in its name.
+                </p>
+              )}
               <label className="field small">
                 <span>Lamp layout</span>
                 <select value={config.signal.layout} onChange={(e) => upd("signal", "layout", e.target.value)}>
@@ -183,6 +218,11 @@ export default function Configure({ videos, videoId, setVideoId }) {
                     Reading: <span className={`state ${reading.state}`}>{reading.state}</span>
                     {reading.method !== "colour" && reading.method !== "none" && <span className="muted"> (by {reading.method})</span>}
                   </div>
+                  {reading.cnn_label && (
+                    <div className="muted small">
+                      Colour rules: <b>{reading.hsv_state}</b> · CNN: <b>{reading.cnn_label}</b> ({(100 * reading.cnn_conf).toFixed(0)}%)
+                    </div>
+                  )}
                   {["red", "amber", "green"].map((c) => (
                     <div key={c} className="scorebar">
                       <span>{c}</span>
