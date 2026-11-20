@@ -253,8 +253,14 @@ class Service:
 
     def list_models(self) -> list[dict]:
         models = [dict(m) for m in STOCK_MODELS]
-        for p in sorted((self.data / "models").glob("*.pt")):
+        mdir = self.data / "models"
+        for p in sorted(mdir.glob("*.pt")):
             models.append({"id": str(p), "label": f"Fine-tuned: {p.name}"})
+        for p in sorted(mdir.glob("*_openvino_model")):
+            if p.is_dir():
+                models.append({"id": str(p), "label": f"OpenVINO (fast CPU): {p.name.removesuffix('_openvino_model')}"})
+        for p in sorted(mdir.glob("*.onnx")):
+            models.append({"id": str(p), "label": f"ONNX: {p.stem}"})
         models.append({"id": "scripted", "label": "Synthetic ground truth (test videos only)"})
         return models
 

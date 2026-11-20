@@ -37,3 +37,20 @@ def test_every_tracker_runs(tracker):
     tr.reset()
     assert tr.track(np.zeros((360, 640, 3), np.uint8), 0) == []
     assert tracker in tr.name
+
+
+def test_openvino_export_tracks_like_pytorch(tmp_path):
+    pytest.importorskip("openvino")
+    import shutil
+
+    from ultralytics import YOLO
+
+    from app.pipeline.config import DetectorConfig
+    from app.pipeline.detectors import YoloTracker
+    w = tmp_path / "yolo11n.pt"
+    shutil.copy2(WEIGHTS, w)
+    out = YOLO(str(w)).export(format="openvino", imgsz=320)
+    tr = YoloTracker(DetectorConfig(model=str(out), imgsz=320))
+    assert sorted(tr.names[i] for i in tr.class_ids) == ["bus", "car", "motorcycle", "truck"]
+    tr.reset()
+    assert tr.track(np.zeros((320, 320, 3), np.uint8), 0) == []

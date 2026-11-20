@@ -13,6 +13,12 @@ reportlab>=4.0
 ultralytics>=8.3
 lap>=0.5
 
+# Faster CPU inference: tools/export_model.py (OpenVINO ~1.75x faster than
+# PyTorch for YOLO11n on a 4-core CPU in our test). onnx/onnxslim are for export.
+openvino>=2024.0
+onnx>=1.16
+onnxslim>=0.1
+
 # Evaluation
 scipy>=1.11
 
