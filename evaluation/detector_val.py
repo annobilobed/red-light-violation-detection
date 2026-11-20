@@ -25,7 +25,8 @@ def main(argv=None):
     ap.add_argument("--device")
     ap.add_argument("--out", default="results/detector")
     args = ap.parse_args(argv)
-    from ultralytics import YOLO
+    from ultralytics import YOLO, settings
+    settings.update({"sync": False})  # no usage analytics
     for w in args.weights:
         model = YOLO(w)
         m = model.val(data=args.data, split=args.split, imgsz=args.imgsz, device=args.device, verbose=False,

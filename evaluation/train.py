@@ -40,7 +40,8 @@ def main(argv=None):
         for r in runs:
             print(r)
         return
-    from ultralytics import YOLO
+    from ultralytics import YOLO, settings
+    settings.update({"sync": False})  # no usage analytics
     for r in runs:
         print(f"=== training {r['name']}")
         YOLO(r["model"]).train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,

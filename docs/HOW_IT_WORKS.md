@@ -22,17 +22,55 @@ One `AnalysisConfig` describes **one camera view with one approach**:
 
 ## 2. Detection and tracking (`pipeline/detectors.py`)
 
-`YoloTracker` calls `model.track(frame, persist=True, tracker="bytetrack.yaml", classes=[...])` on every processed frame. Class IDs are looked up **by name** from the model (`car`, `motorcycle`, `bus`, `truck` for COCO). A fine-tuned model must use those names or set `vehicle_classes`. Boxes without a track ID are ignored. `reset()` clears ByteTrack state between videos, so IDs restart.
+`YoloTracker` calls `model.track(frame, persist=True, tracker=..., classes=[...])` on every processed frame. Class IDs are looked up **by name** from the model (`car`, `motorcycle`, `bus`, `truck` for COCO). A fine-tuned model must use those names or set `vehicle_classes`. Boxes without a track ID are ignored. `reset()` clears tracker state between videos, so IDs restart. Models are loaded through `load_yolo()`, which switches off Ultralytics' anonymous usage analytics (on by default in Ultralytics).
+
+**Trackers** (`detector.tracker`, chosen on the Analyse page):
+
+| id | What it is |
+|---|---|
+| `bytetrack` (default) | ByteTrack: motion + box overlap, uses low-confidence boxes to keep tracks through partial occlusion |
+| `botsort_static` | BoT-SORT with camera-motion compensation switched off (`pipeline/trackers/botsort_static.yaml`); for fixed cameras |
+| `botsort_reid` | as above plus appearance re-identification from the detector's own features (no extra model) |
+| `botsort` | stock BoT-SORT with camera-motion compensation (for moving cameras) |
+
+Which tracker is best has to be measured on Cape Coast clips with `evaluation/compare_trackers.py`. On a public dashcam clip (300 frames, CPU), `bytetrack` and `botsort_static` produced the same 10 track IDs at 33 and 35 ms/frame, while `botsort_reid` fragmented into 17 IDs.
+
+**Model formats.** `tools/export_model.py` exports a checkpoint to OpenVINO (or ONNX) into `backend/data/models/`, where the dashboard lists it. On a 4-core Xeon, YOLO11n took 29.0 ms/frame in PyTorch and 16.5 ms/frame in OpenVINO, with the same detections (162 of 163 boxes matched, mean IoU 0.98); the full pipeline ran at 32 vs 56 frames/s. ONNX Runtime was slower than PyTorch on that machine (39.6 ms/frame).
 
 `ScriptedDetector` replays ground-truth boxes written by the synthetic video generator. It is used only for tests and the demo.
 
-Verified here: YOLO11n + ByteTrack on CPU (4-core Xeon) ran at about 33 ms/frame on 1280×720 dashcam footage with persistent IDs (one car kept the same ID for 283 frames). YOLO11m ran at about 150 ms/frame. Low-resolution top-down footage (320×176) gave very few detections with the stock COCO model. This is one reason for fine-tuning on Cape Coast frames.
+## 3. Signal-state reading (`pipeline/signal_state.py`, `pipeline/calibration.py`)
 
-## 3. Signal-state reading (`pipeline/signal_state.py`)
+**Per frame, colour rules (`reader: hsv`, the default).** For each lamp box (thirds of the signal box, or custom boxes), convert to HSV and compute:
+- the **colour score**: share of pixels that are bright (`V ≥ val_min`), saturated (`S ≥ sat_min`) and of that lamp's own hue (OpenCV hue 0–180: red 0–10 and 160–180, amber 11–34, green 35–100);
+- the **bright-core share**: share of pixels with `V ≥ core_val`;
+- the **peak**: 95th percentile of `V`.
 
-**Per frame.** For each lamp box, convert to HSV and count the pixels that are bright (`V ≥ val_min`), saturated (`S ≥ sat_min`) and of that lamp's hue (OpenCV hue scale 0–180: red 0–10 and 160–180, amber 11–34, green 35–100). The lamp's **score** is that fraction. The lamp with the highest score is taken as lit only if its score is at least `min_score` and it beats the runner-up by at least `margin`. Otherwise the state is **`uncertain`**. The colour is checked inside each lamp's own position, so a red-looking amber lamp cannot be read as red.
+Rules, in order (one shared, vectorised function, `decide_arrays`, is used by the reader and by calibration):
+1. **Colour**: the best colour score is at least `min_score` and beats the runner-up by `margin`.
+2. **Core + colour** (`core_agreement`, on by default): for over-exposed lamps whose centre is white. The lamp with the most very bright pixels (≥ `core_min`, ahead by `core_margin`) must also be the lamp with the highest colour score (≥ `weak_min`). Both cues must point at the same lamp.
+3. **Brightness fallback** (off by default): position only, for night footage; validate before use.
 
-Optional night fallback (`brightness_fallback`): when no lamp passes on colour (e.g. over-exposed white lamps), the lamp whose mean brightness is clearly higher than the others (`brightness_ratio`) is taken. This relies on lamp position, so it is off by default and should be validated on night footage before use.
+**Safety guard** for every rule: the chosen lamp's peak must reach `peak_min` (130). Lit lamps are light sources; foliage or a green vehicle in front of the signal usually is not. This was added after the synthetic occlusion (dull green foliage over the signal) was read as a green lamp once the brightness threshold was lowered. Brightly sunlit green objects can still pass it, which is one reason for the classifier option below. Otherwise the state is **`uncertain`**: the reader never guesses.
+
+**Defaults and real-lamp results.** The defaults were chosen on the training split (1187 crops) of a public, MIT-licensed set of real signal-head crops (US roads, *not* Cape Coast; `backend/tests/fixtures/real_lamps/README.md`). On its held-out split (297 crops): previous defaults read 68.4% of lamps; current defaults read 85.5%; both with **zero wrong colours**. Amber is weakest (3 of 9) because amber lamps are often over-exposed and the set has few of them.
+
+**Calibration** (Configure page panel, `POST /api/videos/{id}/signal-calibrate`, `tools/calibrate_signal.py`). A person labels frames as red, amber or green. A grid of about 64,000 threshold combinations is scored on them, and the recommendation is the setting with the highest coverage that has **no red/other confusion** and no wrong colour (ties → stricter thresholds; if the current settings are already best, keep them). `peak_min` is not searched, because calibration frames rarely contain occlusions. Calibration numbers are measured on the labelled frames and are therefore optimistic; signal accuracy must be measured on other sessions with `evaluate_signal.py`. The labels are stored in `signal.samples`.
+
+**Optional CNN classifier** (`reader: cnn | hybrid | agree`, `signal.classifier`). A YOLO11n-cls model with classes red, amber, green and **none** (unlit, hidden, not a signal) looks at the whole signal box. It commits only at confidence ≥ `classifier_conf` (0.9).
+- `hybrid`: if rules and classifier give different colours → `uncertain`; if only one commits, its colour is used; a confident `none` from the classifier vetoes the rules.
+- `agree`: both must give the same colour (safest).
+
+Starter model, trained on the public crops above plus "none" crops from public road videos, measured on the held-out split (297 lamps + 350 non-lamp crops):
+
+| Reader | Lamps read | Wrong colours | Non-lamp crops given a colour |
+|---|---|---|---|
+| hsv | 85.5% | 0 | 42 / 350 |
+| cnn (0.9) | 98.3% | 0 | 3 / 350 |
+| hybrid (0.9) | 98.7% | 0 | 5 / 350 |
+| agree (0.9) | 85.2% | 0 | 1 / 350 |
+
+Several of the remaining non-lamp errors come from green outlines burnt into one public road video. The starter model does **not** transfer to different-looking footage: on the synthetic video's drawn lamps it answers `none`, so hybrid/agree return `uncertain` (fail-safe, no false alerts). A classifier must therefore be trained on Cape Coast crops (`tools/export_signal_crops.py`, `evaluation/train_signal_classifier.py`) before it is used for results.
 
 **Over time** (offline, once the whole video has been read):
 
@@ -40,8 +78,6 @@ Optional night fallback (`brightness_fallback`): when no lamp passes on colour (
 2. `uncertain` gaps no longer than `bridge_gap_s`, with the **same** colour on both sides, take that colour. This handles LED flicker (red–dark–red is still red). A gap between **different** colours (e.g. amber→?→red) stays `uncertain`, because the change happened at an unknown moment inside it.
 
 The result is a list of segments. A red segment's **onset** is the time of its first frame. `onset_exact` is false when the previous segment was `uncertain`; red then began at or before the recorded onset.
-
-The Configure page's **Test signal reading** shows the single-frame scores for any frame, for tuning in daylight, dusk and night.
 
 ## 4. Stop-line crossing and the decision rule (`pipeline/crossing.py`)
 
@@ -82,12 +118,18 @@ Clips cover `pre_s` before to `post_s` after the crossing at the original frame 
 
 ## 7. Privacy (`pipeline/privacy.py`)
 
-Used for the PDF's anonymised snapshots, the evidence ZIP and the accident demo. It only finds regions to **blur** and never reads plates:
+Used for the PDF's anonymised snapshots, the evidence ZIP, the Review page's anonymised preview and the accident demo. It only finds regions to **blur** and never reads plates or identifies anyone. Layers are unioned, so one layer missing something is covered by another:
 
-- `standard`: OpenCV Haar faces (frontal and profile) and plate-like regions; for every tracked vehicle, the lower 35 % of the box (plate band) and a windscreen band (driver); for motorcycles, the top 40 % (rider's head).
-- `strong`: additionally pixelates every vehicle box completely.
+1. **Faces**: OpenCV's res10 SSD face detector (official OpenCV files, fetched and checksum-checked by `tools/download_models.py`), run on the whole frame and on overlapping tiles so small faces are found. Haar cascades are used if the model files are missing.
+2. **People**: the COCO YOLO model's `person` class. The head region of every person box is blurred, and faces are searched in an upscaled crop of each box. This covers pedestrians, riders and roadside workers.
+3. **Vehicle bands** from the tracked boxes: 10–50% of the height (windscreen and driver) and 40–100% (number plate); motorcycles also get the top half (rider). The plate band was widened after a real rear-view photo, with the plate at 47% of the car's height, stayed partly legible with the earlier band.
+4. OpenCV's generic plate cascade (weak on Ghanaian plates; the bands are the main safeguard).
 
-Blurring is applied to the raw frame **before** overlays, so labels stay readable. Automatic blurring can miss things, so a person must check files before publishing them. (OpenCV 5 removed the Haar cascades from the main package. The code then falls back to the box-based regions, and `/api/health` reports `haar_cascades: false`. The requirements pin OpenCV 4.x.)
+Blur strength is set from each region's longer side, so a thin band across a car still destroys plate characters. `strong` mode pixelates every vehicle and person box completely. Blurring is applied to the raw frame **before** overlays.
+
+Checked on real photos (not Cape Coast): two faces in a close-up and the visible faces in a street scene were blurred, and a European rear plate became unreadable.
+
+**Human sign-off.** Automatic blurring can miss things, so the Review page shows the anonymised still of each event and records "checked by … at …" (`PATCH /api/events/{id}/anon-check`). The evidence ZIP can include only signed-off events, and its README lists the check status of each event. A sign-off covers the still; clips must be watched before they are published.
 
 ## 8. Supplementary accident demonstration (`pipeline/accident.py`)
 

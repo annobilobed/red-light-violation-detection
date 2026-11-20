@@ -33,6 +33,15 @@ TRACKERS: dict[str, tuple[str, str]] = {
 }
 
 
+def load_yolo(weights: str, **kw):
+    """Load an Ultralytics model with its anonymous usage analytics switched
+    off (Ultralytics sends usage events to Google Analytics by default)."""
+    from ultralytics import YOLO, settings
+    if settings.get("sync", False):
+        settings.update({"sync": False})
+    return YOLO(weights, **kw)
+
+
 def resolve_tracker(name: str) -> str:
     """Tracker id ('bytetrack', 'botsort_static', ...) or a .yaml path/name."""
     key = name.removesuffix(".yaml") if name in ("bytetrack.yaml", "botsort.yaml") else name
@@ -56,11 +65,11 @@ class YoloTracker:
 
     def __init__(self, cfg: DetectorConfig):
         try:
-            from ultralytics import YOLO
+            import ultralytics  # noqa: F401
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise RuntimeError("Ultralytics is not installed: pip install ultralytics") from exc
         self.cfg = cfg
-        self.model = YOLO(cfg.model)
+        self.model = load_yolo(cfg.model)
         names = self.model.names  # {id: name}
         if isinstance(names, list):
             names = dict(enumerate(names))

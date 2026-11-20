@@ -39,7 +39,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.int8 and (args.format != "openvino" or not args.data):
         ap.error("--int8 needs --format openvino and --data")
-    from ultralytics import YOLO
+    from ultralytics import YOLO, settings
+    settings.update({"sync": False})  # no usage analytics
     out = Path(YOLO(args.weights).export(format=args.format, imgsz=args.imgsz, int8=args.int8,
                                          data=args.data, dynamic=False))
     name = args.name or Path(args.weights).stem

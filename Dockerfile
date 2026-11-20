@@ -42,7 +42,7 @@ RUN --mount=type=secret,id=ca,required=false \
  && python tools/download_models.py \
  && cd backend && python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
 
-ENV RLV_DATA_DIR=/data YOLO_CONFIG_DIR=/tmp/Ultralytics
+ENV RLV_DATA_DIR=/data YOLO_CONFIG_DIR=/tmp/Ultralytics YOLO_OFFLINE=1
 VOLUME /data
 WORKDIR /app/backend
 EXPOSE 8000

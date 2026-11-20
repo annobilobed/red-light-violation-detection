@@ -24,7 +24,25 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-The first YOLO run downloads `yolo11n.pt` / `yolo11m.pt` automatically. For a CPU-only machine, you can install the smaller CPU build of PyTorch first: `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`.
+The first YOLO run downloads `yolo11n.pt` / `yolo11m.pt` automatically. For a CPU-only machine, you can install the smaller CPU build of PyTorch first: `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`. Ultralytics' anonymous usage analytics are switched off by the code.
+
+Download the face detector used for anonymisation (official OpenCV files, checksum-checked):
+
+```bash
+python tools/download_models.py
+```
+
+### Docker
+
+```bash
+docker build -t redlight .
+```
+
+```bash
+docker run -p 8000:8000 -v "$PWD/data:/data" redlight
+```
+
+The image needs no system packages and bakes in YOLO11n and the face detector, so it runs offline. If Docker Hub rate-limits you, add `--build-arg BASE_IMAGE=mirror.gcr.io/library/python:3.12-slim`. Behind a TLS-inspecting proxy, add `--secret id=ca,src=/path/to/proxy-ca.crt` (used only while downloading, never stored in the image).
 
 ## Run the dashboard
 
@@ -43,10 +61,10 @@ python tools/seed_demo.py --analyse
 ### Workflow
 
 1. **Videos**: upload a recorded video. Give the location and session, and tick *recorded in Cape Coast* only for Cape Coast footage. Anything else is labelled "Not Cape Coast footage" everywhere.
-2. **Configure**: on a frame of the video, draw the **stop line**, click the **approach side**, drag a box around the **signal head** for that approach, and optionally outline the **approach zone** (the lanes). Scrub to red, amber and green frames and press **Test signal reading** to check the HSV thresholds (per-lamp scores are shown). Save.
-3. **Analyse**: choose YOLO11n (proposed) or YOLO11m (baseline), or a fine-tuned checkpoint placed in `backend/data/models/`. Analyses run in the background.
-4. **Review**: each potential violation has a clip, a still at the crossing frame, the signal state, the red onset and the time since red. Mark it **Confirm / Reject / Unsure** (keys `c` `r` `u`; `j`/`k` to move). Crossings made while the signal was unreadable are listed separately and are never flagged.
-5. **Reports**: summary, signal timeline, CSV, PDF (with no images, anonymised snapshots, or originals for internal use), and an **evidence ZIP** that blurs faces, plate regions and drivers before overlays are drawn.
+2. **Configure**: on a frame of the video, draw the **stop line**, click the **approach side**, drag a box around the **signal head** for that approach, and optionally outline the **approach zone** (the lanes). Then **calibrate the signal reading**: scrub to frames where the signal is clearly red, amber or green, press *Frame at … is red/amber/green* (at least 5 of each, across the lighting conditions in the video), and press **Find best thresholds** → **Apply**. **Test signal reading** shows the per-lamp scores for any frame. Save.
+3. **Analyse**: choose YOLO11n (proposed) or YOLO11m (baseline), a fine-tuned checkpoint, or an **OpenVINO** export (fastest on CPU) placed in `backend/data/models/`, and a **tracker** (ByteTrack, or BoT-SORT variants). Analyses run in the background.
+4. **Review**: each potential violation has a clip, a still at the crossing frame, the signal state, the red onset and the time since red. Mark it **Confirm / Reject / Unsure** (keys `c` `r` `u`; `j`/`k` to move). Crossings made while the signal was unreadable are listed separately and are never flagged. Before anything is shared, open the **anonymisation check**, look at the blurred still and sign it off.
+5. **Reports**: summary, signal timeline, CSV, PDF (with no images, anonymised snapshots, or originals for internal use), and an **evidence ZIP** that blurs faces, people's heads, plate regions and drivers before overlays are drawn (optionally only the events whose anonymisation was signed off).
 6. **Accident footage (exploratory)**: a supplementary demonstration. You mark an approximate collision time and get a contact sheet and clip of the frames before and after it. It makes no claim about cause, speed or right of way.
 
 ## Command line
@@ -64,6 +82,28 @@ python tools/analyse_cli.py junction.mp4 --config junction.json --model yolo11n.
 ```
 
 The config JSON is what the dashboard saves; `GET /api/videos/{id}/config` returns it.
+
+## Speed: export to OpenVINO
+
+```bash
+python tools/export_model.py yolo11n.pt
+```
+
+On a 4-core cloud CPU this took YOLO11n from 29.0 to 16.5 ms/frame with the same detections (the full pipeline went from 32 to 56 frames/s). Measure on your own hardware with `evaluation/benchmark.py`.
+
+## Optional CNN signal classifier
+
+The colour rules work without training data. Once you have labelled Cape Coast signal crops, a small classifier (YOLO11n-cls, classes red/amber/green/none) can be combined with them:
+
+```bash
+python tools/export_signal_crops.py --video s01.mp4 --config s01.json --labels s01_signal.csv --out datasets/signal_crops --split train --none-random 100
+```
+
+```bash
+python evaluation/train_signal_classifier.py --data datasets/signal_crops
+```
+
+Copy `best.pt` to `backend/data/models/signal_classifier.pt` and choose reader **Hybrid** or **Agree** on the Configure page. A conflict between the two readers gives `uncertain`. A starter model trained on public non–Cape Coast crops does not work on other footage (it returns `uncertain` on our synthetic lamps), so train on your own crops.
 
 ## Tests
 
@@ -89,9 +129,10 @@ backend/app/            service.py (jobs, exports), db.py (SQLite), reports.py (
 backend/app/static/     built dashboard
 backend/tests/          pytest suite
 frontend/src/           React dashboard source
-evaluation/             split, train, detector_val, tracking_check, evaluate_signal, evaluate_events,
-                        agreement, compare_models, benchmark
-tools/                  synthetic video generator, CLI runner, demo seeder
+evaluation/             split, train, detector_val, tracking_check, compare_trackers, evaluate_signal,
+                        evaluate_events, agreement, compare_models, benchmark, train_signal_classifier
+tools/                  synthetic video, CLI runner, demo seeder, signal calibration, crop export,
+                        model export (OpenVINO/ONNX), model download
 docs/HOW_IT_WORKS.md    component-by-component explanation
 ```
 

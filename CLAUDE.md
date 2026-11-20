@@ -15,33 +15,37 @@ Recorded traffic video → YOLO (nano: yolo11n; baseline: yolo11m) + ByteTrack �
 - No number-plate recognition, driver identification, enforcement decisions or live CCTV in this version.
 - The accident-footage module (UCC East Gate) is a supplementary demonstration only; it must not claim crash causes.
 
-## Status (20 Nov 2026)
-Built and verified in this session (82 pytest tests pass: `cd backend && python -m pytest -q`):
-- Pipeline `backend/app/pipeline/`: config, geometry, signal_state, crossing, detectors, evidence, annotate, privacy, accident, runner.
-- `service.py`, `db.py`, `reports.py`, `main.py`. FastAPI was run with uvicorn and every route is covered by TestClient tests (`tests/test_api.py`).
-- Dashboard `frontend/src/` (React → esbuild → `backend/app/static/`). Driven end to end in headless Chromium against the real uvicorn server: upload, drawing tools, signal test, YOLO analysis, review with keyboard, CSV/PDF/ZIP export, accident page. No console errors.
-- `YoloTracker` ran with real yolo11n.pt / yolo11m.pt on public non–Cape Coast clips (dashcam and fixed-camera road): class filter, persistent IDs, `reset()`, about 33 ms/frame (n) and 150 ms/frame (m) on a 4-core CPU. These clips have no traffic signal, so they test tracking only.
-- `evaluation/train.py`, `detector_val.py` and `benchmark.py` ran successfully (train/val smoke test on Ultralytics' coco8; the numbers are meaningless). All evaluation metrics have unit tests.
-- Privacy (former item 4): anonymisation in `pipeline/privacy.py`, used by the PDF snapshots, the evidence ZIP and the accident demo.
-- Accident demo (former item 5): `pipeline/accident.py` + Accident page.
-- H.264 conversion verified (ffprobe reports h264/yuv420p).
+## Status (20 Nov 2026, end of session 2)
+113 pytest tests pass (`cd backend && python -m pytest -q`; one classifier test is skipped unless `RLV_SIGNAL_CLASSIFIER` points at a trained model).
 
-Not verified:
-- No real signalised-junction footage was available, so the HSV thresholds are untuned for real lamps (daylight/dusk/night). The defaults work on the synthetic video only.
-- The Dockerfile has not been built.
-- Haar cascades for faces/plates are generic OpenCV models; their recall on Cape Coast footage is unknown. The box-based blur regions are the main safeguard.
+Built and verified:
+- Pipeline, service, DB, reports, FastAPI, React dashboard (driven end to end in headless Chromium against uvicorn, no console errors).
+- YOLO11n/YOLO11m + ByteTrack verified on public non–Cape Coast clips. Tracker choice: `bytetrack` (default), `botsort_static`, `botsort_reid`, `botsort`; `evaluation/compare_trackers.py`.
+- OpenVINO/ONNX export (`tools/export_model.py`); YOLO11n 29.0 → 16.5 ms/frame on a 4-core CPU, same detections.
+- Signal reading: core+colour rule for over-exposed lamps, `peak_min` safety guard, defaults chosen on real MIT-licensed US crops (held-out coverage 85.5%, zero wrong colours), calibration from labelled frames (Configure page, API, `tools/calibrate_signal.py`). Real-lamp fixture: `backend/tests/fixtures/real_lamps/`.
+- Optional CNN signal classifier (`reader: hybrid|agree|cnn`), training and crop-export tools. The starter model (trained on public crops) does not transfer to other footage: retrain on Cape Coast crops.
+- Anonymisation: res10 DNN faces (`tools/download_models.py`), YOLO person heads, vehicle bands 10–100%, human sign-off on the Review page, ZIP filter for signed-off events.
+- Ultralytics usage analytics disabled via `detectors.load_yolo()` and in the scripts.
+- Docker: built and run with `--network none` here; health OK, 113 tests pass inside, YOLO analysis works. Build args `BASE_IMAGE`, `TORCH_INDEX`, optional CA secret.
+
+Not verified (needs Cape Coast data):
+- Signal thresholds and classifier on Cape Coast signals (day/dusk/night). The defaults come from US lamps.
+- Tracker choice, detector accuracy, end-to-end precision/recall on Cape Coast footage.
+- Anonymisation recall on Ghanaian plates and local scenes (the human sign-off stays mandatory).
+- The CPU-only PyTorch Docker build (the CPU wheel index was blocked here; built with PyPI torch, 10.5 GB image).
 
 ## Remaining work, in order
-1. Signal reading on real Cape Coast footage: use Configure → Test signal reading on red/amber/green frames at each site and time of day; tune `sat_min`, `val_min`, `min_score`, `margin`; decide whether `brightness_fallback` is needed at night (validate it with `evaluate_signal.py` before using it).
-2. Run yolo11n on real Cape Coast junction video; check missed/duplicated tracks at the stop line; tune `conf`, `line_margin_px`, `min_approach_frames`, approach zone.
-3. Field data (the authors do the recording and annotation): permissions, recording, CVAT annotation, `agreement.py`, `split_sessions.py`, `train.py` (3 seeds × 2 models), then every evaluation script on the held-out test sessions (see `evaluation/README.md`).
-4. Check anonymisation output on real footage before anything is shared.
-5. Paper: fill Section 5 from the evaluation outputs and change the planned methods to past tense once the work is done (see the tense rules in the authors' guide). Never write expected outcomes as findings.
-
-Nice to have: a Colab notebook, several approaches per camera, filter arrows for turning traffic, automatic re-calibration when the camera moves.
+1. Record Cape Coast footage; at each site calibrate signal reading on the Configure page (label frames per lighting condition).
+2. Annotate (CVAT), `agreement.py`, `split_sessions.py`, `train.py` (3 seeds × 2 models), `detector_val.py`, `compare_models.py`.
+3. `compare_trackers.py` on test clips to choose the tracker; `benchmark.py` for PyTorch vs OpenVINO.
+4. Optional: export signal crops from TRAIN sessions, train the classifier, compare readers with `evaluate_signal.py` on TEST sessions.
+5. `evaluate_signal.py` and `evaluate_events.py` on held-out test sessions; anonymise and sign off any material for publication.
+6. Paper: Section 5 from the evaluation outputs only; methods in past tense once done. Never write expected outcomes as findings.
 
 ## Conventions
 - Python 3.10+. Keep `runner.py` free of DB and web code (it returns plain data).
+- Load YOLO models with `detectors.load_yolo()` (disables Ultralytics analytics).
+- Signal decisions live in one function, `signal_state.decide_arrays`, used by both the reader and calibration; change it there only.
 - OpenCV must stay 4.x (OpenCV 5 dropped `cv2.CascadeClassifier`); use `opencv-python`, not both it and `-headless`.
 - Frontend rebuild: `cd frontend && npm install && npm run build` (writes `backend/app/static/app.js` and `app.css`). FrameCanvas `onChange` receives an updater function.
 - Tests use the synthetic video and `ScriptedDetector`. When you add a decision rule, add a scenario to `tools/make_synthetic_video.py` and an assertion to `tests/test_end_to_end.py`.

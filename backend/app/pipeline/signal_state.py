@@ -211,8 +211,8 @@ class SignalClassifier:
     """YOLO classification model with classes red/amber/green/none."""
 
     def __init__(self, weights: str):
-        from ultralytics import YOLO
-        self.model = YOLO(weights, task="classify")
+        from .detectors import load_yolo
+        self.model = load_yolo(weights, task="classify")
         names = self.model.names if isinstance(self.model.names, dict) else dict(enumerate(self.model.names))
         self.names = {int(k): str(v) for k, v in names.items()}
         if set(self.names.values()) != {"red", "amber", "green", "none"}:

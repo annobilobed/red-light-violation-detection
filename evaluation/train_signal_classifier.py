@@ -39,7 +39,8 @@ def main(argv=None):
     classes = sorted(p.name for p in (Path(args.data) / "train").iterdir() if p.is_dir())
     if set(classes) != {"red", "amber", "green", "none"}:
         raise SystemExit(f"expected class folders red, amber, green, none; found {classes}")
-    from ultralytics import YOLO
+    from ultralytics import YOLO, settings
+    settings.update({"sync": False})  # no usage analytics
     model = YOLO(args.model)
     model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch, seed=args.seed,
                 deterministic=True, device=args.device, project=args.project, name=args.name, exist_ok=True,

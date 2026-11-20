@@ -255,6 +255,8 @@ class Service:
         models = [dict(m) for m in STOCK_MODELS]
         mdir = self.data / "models"
         for p in sorted(mdir.glob("*.pt")):
+            if "signal" in p.name:   # signal classifiers are not vehicle detectors
+                continue
             models.append({"id": str(p), "label": f"Fine-tuned: {p.name}"})
         for p in sorted(mdir.glob("*_openvino_model")):
             if p.is_dir():

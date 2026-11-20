@@ -5,7 +5,7 @@ Four tasks, measured **separately**, each on held-out **test sessions** of Cape 
 | Task | Script | Ground truth | Metrics |
 |---|---|---|---|
 | Vehicle detection | `detector_val.py` | CVAT boxes (YOLO 1.1 export) | mAP@0.5, mAP@0.5:0.95, precision, recall (overall, per class) |
-| Tracking | `tracking_check.py` | CVAT tracks (MOT 1.1 export) | MOTA, IDF1, ID switches, fragmentations |
+| Tracking | `tracking_check.py`, `compare_trackers.py` | CVAT tracks (MOT 1.1 export) | MOTA, IDF1, ID switches, fragmentations, per tracker (ByteTrack vs BoT-SORT) |
 | Signal-state recognition | `evaluate_signal.py` | signal intervals CSV | coverage, accuracy on covered frames, per-class P/R/F1, confusion matrix, red↔other errors |
 | End-to-end potential violations | `evaluate_events.py` | violation events CSV | precision, recall, F1 with 95 % Wilson intervals; system alerts and reviewer-confirmed alerts |
 | Speed | `benchmark.py` | – | ms/frame and FPS (detection, detection+tracking, full pipeline), with hardware recorded |
@@ -22,7 +22,11 @@ Four tasks, measured **separately**, each on held-out **test sessions** of Cape 
    - `tracking_check.py` against MOT ground truth;
    - `evaluate_signal.py` with that analysis' `signal_readings.csv`;
    - export the events CSV, and after review export it again, then run `evaluate_events.py`.
-6. `benchmark.py` on the target hardware.
+6. `compare_trackers.py` on the test clips with tracking ground truth; use the tracker with the fewest ID switches near the stop line.
+7. `benchmark.py` on the target hardware, for the PyTorch and the OpenVINO export (`tools/export_model.py`); re-run `detector_val.py` on an export before reporting its accuracy.
+8. Optional signal classifier: crops from TRAIN sessions only (`tools/export_signal_crops.py`), `train_signal_classifier.py`, then `evaluate_signal.py` on test sessions with reader hsv, hybrid and agree.
+
+Calibration frames (Configure page or `tools/calibrate_signal.py`) are tuning data: never report signal accuracy on the frames you calibrated on.
 
 ## File formats
 

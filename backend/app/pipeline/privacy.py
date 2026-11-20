@@ -132,8 +132,8 @@ class PersonDetector:
     detector (COCO class 'person')."""
 
     def __init__(self, weights: str, conf: float = 0.25, imgsz: int = 960):
-        from ultralytics import YOLO
-        self.model = YOLO(weights)
+        from .detectors import load_yolo
+        self.model = load_yolo(weights)
         names = self.model.names if isinstance(self.model.names, dict) else dict(enumerate(self.model.names))
         self.ids = [i for i, n in names.items() if n == "person"]
         self.conf, self.imgsz = conf, imgsz

@@ -67,7 +67,8 @@ def main(argv=None):
     ap.add_argument("--config", help="AnalysisConfig JSON for a full-pipeline timing")
     ap.add_argument("--out", default="results/benchmark.json")
     args = ap.parse_args(argv)
-    from ultralytics import YOLO
+    from ultralytics import YOLO, settings
+    settings.update({"sync": False})  # no usage analytics
     frames = read_frames(args.video, args.frames + args.warmup)
     vehicle = None
     results = []
