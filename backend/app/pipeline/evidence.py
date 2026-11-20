@@ -111,15 +111,28 @@ def read_frame_at(path: str | Path, t: float) -> np.ndarray:
     return frame
 
 
+def ffmpeg_path() -> Optional[str]:
+    """ffmpeg on the PATH, else the static binary from the imageio-ffmpeg
+    package (pip install imageio-ffmpeg), else None."""
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001 - package missing or binary unavailable
+        return None
+
+
 def ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return ffmpeg_path() is not None
 
 
 def to_h264(src: Path, dst: Path) -> bool:
     """Re-encode to H.264/yuv420p so browsers can play it. Returns success."""
     if not ffmpeg_available():
         return False
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-c:v", "libx264",
+    cmd = [ffmpeg_path(), "-y", "-loglevel", "error", "-i", str(src), "-c:v", "libx264",
            "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
            "-an", str(dst)]
     try:

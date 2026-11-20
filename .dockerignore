@@ -1,0 +1,13 @@
+.git
+**/__pycache__
+**/.pytest_cache
+.venv
+frontend/node_modules
+backend/data
+backend/models/*.caffemodel
+backend/models/*.prototxt
+**/*.pt
+runs
+results
+datasets
+samples

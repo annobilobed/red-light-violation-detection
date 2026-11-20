@@ -1,5 +1,4 @@
 """Every decision rule has a scenario in tools/make_synthetic_video.py."""
-import subprocess
 
 import pytest
 
@@ -70,10 +69,11 @@ def test_evidence_written_h264(run):
         assert Path(ev["snapshot"]).stat().st_size > 1000
         assert Path(ev["clip"]).stat().st_size > 1000
         if ev["clip_h264"]:
-            codec = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                                    "stream=codec_name", "-of", "csv=p=0", ev["clip"]],
-                                   capture_output=True, text=True).stdout.strip()
-            assert codec == "h264"
+            import cv2
+            cap = cv2.VideoCapture(ev["clip"])
+            fourcc = int(cap.get(cv2.CAP_PROP_FOURCC)).to_bytes(4, "little").decode(errors="ignore")
+            cap.release()
+            assert fourcc.lower() in ("avc1", "h264"), fourcc
     assert all(c["evidence"] is None for c in result["crossings"] if c["outcome"] == "lawful")
     assert (out / "tracks.npz").exists() and (out / "result.json").exists()
 

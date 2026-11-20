@@ -8,6 +8,8 @@ numpy>=1.26
 # the main package. Ultralytics depends on opencv-python, so use that one.
 opencv-python>=4.9,<5
 reportlab>=4.0
+# Bundled ffmpeg binary, used when ffmpeg is not on the PATH (H.264 clips).
+imageio-ffmpeg>=0.5
 
 # Detection + tracking (YOLO11 + ByteTrack). Installs PyTorch.
 ultralytics>=8.3
