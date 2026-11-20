@@ -143,3 +143,14 @@ details summary { cursor: pointer; color: var(--accent); margin: 4px 0; }
 @media (max-width: 1000px) {
   .configure, .review, .grid2.cards { grid-template-columns: 1fr; }
 }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.chip { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 1px 6px; border-radius: 10px; color: #fff; }
+.chip button.link { color: #fff; font-size: 12px; }
+.chip.red, .label-btn.red { background: var(--red); }
+.chip.amber, .label-btn.amber { background: var(--amber); }
+.chip.green, .label-btn.green { background: var(--green); }
+.label-btn { color: #fff; border: 0; font-size: 12px; }
+.calib th, .calib td { font-size: 12px; padding: 2px 6px 2px 0; width: auto; }
+.calib td.bad { color: var(--red); font-weight: 700; }
+details { margin: 6px 0; }

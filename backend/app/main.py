@@ -35,6 +35,12 @@ class SignalTest(BaseModel):
     signal: dict
 
 
+class SignalCalibration(BaseModel):
+    signal: dict
+    samples: list[dict]
+    max_wrong_rate: float = Field(0.0, ge=0, le=0.2)
+
+
 class AnalysisRequest(BaseModel):
     video_id: int
     model: Optional[str] = None
@@ -136,6 +142,10 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
     @app.post("/api/videos/{vid}/signal-test")
     def signal_test(vid: int, body: SignalTest):
         return svc.test_signal(vid, body.t, body.signal)
+
+    @app.post("/api/videos/{vid}/signal-calibrate")
+    def signal_calibrate(vid: int, body: SignalCalibration):
+        return svc.calibrate_signal(vid, body.signal, body.samples, body.max_wrong_rate)
 
     # ---------------- analyses ----------------
     @app.post("/api/analyses", status_code=201)

@@ -27,6 +27,7 @@ import cv2
 from . import reports
 from .db import REVIEW_STATUSES, Database, now_iso
 from .pipeline.accident import make_sequence
+from .pipeline.calibration import calibrate as calibrate_thresholds
 from .pipeline.config import AnalysisConfig, SignalConfig
 from .pipeline.crossing import Crossing
 from .pipeline.detectors import make_tracker, scenario_path_for
@@ -217,6 +218,28 @@ class Service:
         out["note"] = ("Single-frame reading, before temporal smoothing. 'uncertain' means no lamp clearly "
                        "passed the thresholds; the system never guesses a colour.")
         return out
+
+    def calibrate_signal(self, vid: int, signal: dict, samples: list[dict], max_wrong_rate: float = 0.0) -> dict:
+        """Search HSV thresholds that read the labelled frames best (see
+        pipeline/calibration.py). Does not save anything."""
+        path = self._video_path(vid)
+        try:
+            scfg = AnalysisConfig.from_dict({"signal": signal}).signal
+            lamp_rects(scfg)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise BadRequest(f"Invalid signal settings: {exc}") from exc
+        if not samples:
+            raise BadRequest("Label some frames first (at least 3 of each colour you can find).")
+        frames = []
+        for smp in samples:
+            try:
+                frames.append((read_frame_at(path, max(0.0, float(smp["t"]))), str(smp["state"])))
+            except (KeyError, ValueError) as exc:
+                raise BadRequest(f"Bad sample {smp}: {exc}") from exc
+        try:
+            return calibrate_thresholds(frames, scfg, max_wrong_rate=max_wrong_rate)
+        except ValueError as exc:
+            raise BadRequest(str(exc)) from exc
 
     def list_models(self) -> list[dict]:
         models = [dict(m) for m in STOCK_MODELS]

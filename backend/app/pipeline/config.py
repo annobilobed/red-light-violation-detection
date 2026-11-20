@@ -22,21 +22,36 @@ class SignalConfig:
     layout: str = "vertical"
     # Only for layout == "custom": {"red": [x,y,w,h], "amber": [...], "green": [...]}
     lamps: Optional[dict[str, list[int]]] = None
-    # HSV thresholds (OpenCV scale: H 0-180, S and V 0-255).
-    sat_min: int = 90
-    val_min: int = 120
+    # HSV thresholds (OpenCV scale: H 0-180, S and V 0-255). Defaults come
+    # from calibrating on 1187 real (non-Cape Coast, MIT-licensed) signal-head
+    # crops; tune them per site with the calibration tool on the Configure page.
+    sat_min: int = 70
+    val_min: int = 80
     # Minimum fraction of lit, correctly coloured pixels in a lamp to call it on.
     min_score: float = 0.08
     # The winning lamp must beat the runner-up by this much, else "uncertain".
     margin: float = 0.04
-    # Optional night fallback: if no lamp passes on colour, call the lamp that is
-    # clearly brighter than the others (by position). Off by default.
+    # Safety guard: the chosen lamp's brightest pixels (95th percentile of V)
+    # must reach this. Lit lamps are light sources; foliage or a green vehicle
+    # in front of the signal usually is not. Not tuned by calibration.
+    peak_min: int = 130
+    # Over-exposed lamps (white centre, thin coloured rim): accept a lamp when
+    # its bright core AND its (weak) colour score both single it out.
+    core_agreement: bool = True
+    core_val: int = 200        # V at or above this counts as "very bright"
+    core_min: float = 0.05     # min share of very bright pixels in the lamp
+    core_margin: float = 0.03  # lead over the next-brightest lamp
+    weak_min: float = 0.005    # min colour score for the agreeing lamp
+    # Optional night fallback: if no lamp shows colour, call the lamp that is
+    # clearly brighter than the others (by position only). Off by default.
     brightness_fallback: bool = False
     brightness_ratio: float = 1.6
     # Temporal smoothing.
     min_stable_frames: int = 3      # shorter colour runs become "uncertain"
     bridge_gap_s: float = 0.5       # uncertain gaps this short, with the SAME
                                     # colour on both sides, take that colour
+    # Frames a person labelled for calibration: [{"t": 12.4, "state": "red"}, ...]
+    samples: list[dict] = field(default_factory=list)
 
 
 @dataclass

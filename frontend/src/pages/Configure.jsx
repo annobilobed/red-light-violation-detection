@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, fmtTime } from "../api.js";
 import { ErrorBox, Empty, SourceBadge, VideoPicker } from "../components/common.jsx";
 import FrameCanvas from "../components/FrameCanvas.jsx";
+import Calibration from "../components/Calibration.jsx";
 
 const TOOLS = [
   { id: "line", label: "Stop line", help: "Click the two ends of the stop line." },
@@ -155,6 +156,20 @@ export default function Configure({ videos, videoId, setVideoId }) {
                 <Num label="Stable frames" value={config.signal.min_stable_frames} min={1} max={60} onChange={(v) => upd("signal", "min_stable_frames", v)} help="Shorter colour runs become uncertain" />
                 <Num label="Bridge gap (s)" value={config.signal.bridge_gap_s} step={0.1} min={0} max={5} onChange={(v) => upd("signal", "bridge_gap_s", v)} help="Unreadable gaps this short between the SAME colour take that colour (LED flicker)" />
               </div>
+              <details>
+                <summary>Over-exposed lamps and safety guard</summary>
+                <label className="check">
+                  <input type="checkbox" checked={!!config.signal.core_agreement} onChange={(e) => upd("signal", "core_agreement", e.target.checked)} />
+                  Read over-exposed lamps when bright core and colour agree
+                </label>
+                <div className="grid2">
+                  <Num label="Core brightness" value={config.signal.core_val} min={0} max={255} onChange={(v) => upd("signal", "core_val", v)} help="V at or above this counts as very bright" />
+                  <Num label="Core min share" value={config.signal.core_min} step={0.01} min={0} max={1} onChange={(v) => upd("signal", "core_min", v)} />
+                  <Num label="Core margin" value={config.signal.core_margin} step={0.01} min={0} max={1} onChange={(v) => upd("signal", "core_margin", v)} />
+                  <Num label="Weak colour min" value={config.signal.weak_min} step={0.005} min={0} max={1} onChange={(v) => upd("signal", "weak_min", v)} />
+                  <Num label="Peak brightness min" value={config.signal.peak_min} min={0} max={255} onChange={(v) => upd("signal", "peak_min", v)} help="Safety guard: a lit lamp's brightest pixels must reach this (stops foliage or green vehicles being read as a green lamp). Not changed by calibration." />
+                </div>
+              </details>
               <label className="check">
                 <input type="checkbox" checked={!!config.signal.brightness_fallback} onChange={(e) => upd("signal", "brightness_fallback", e.target.checked)} />
                 Night fallback: use lamp brightness by position if colour is washed out
@@ -166,7 +181,7 @@ export default function Configure({ videos, videoId, setVideoId }) {
                 <div className="reading">
                   <div>
                     Reading: <span className={`state ${reading.state}`}>{reading.state}</span>
-                    {reading.method === "brightness" && <span className="muted"> (by brightness)</span>}
+                    {reading.method !== "colour" && reading.method !== "none" && <span className="muted"> (by {reading.method})</span>}
                   </div>
                   {["red", "amber", "green"].map((c) => (
                     <div key={c} className="scorebar">
@@ -175,13 +190,17 @@ export default function Configure({ videos, videoId, setVideoId }) {
                         <i className={c} style={{ width: `${Math.min(100, 100 * reading.scores[c])}%` }} />
                         <b style={{ left: `${Math.min(100, 100 * config.signal.min_score)}%` }} title="min lamp score" />
                       </div>
-                      <span className="mono">{reading.scores[c].toFixed(3)}</span>
+                      <span className="mono" title={`bright core ${reading.core[c].toFixed(3)}, peak V ${reading.peak[c]}`}>
+                        {reading.scores[c].toFixed(3)}
+                      </span>
                     </div>
                   ))}
                   <p className="muted small">{reading.note}</p>
                 </div>
               )}
             </section>
+
+            <Calibration videoId={videoId} t={t} setT={setT} config={config} setConfig={setConfig} setSaved={setSaved} />
 
             <section className="card">
               <h3>Stop-line crossing</h3>

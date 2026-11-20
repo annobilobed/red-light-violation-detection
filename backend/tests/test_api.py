@@ -100,6 +100,26 @@ def test_signal_test_endpoint(client, video):
         assert set(r["lamp_rects"]) == {"red", "amber", "green"}
 
 
+def test_signal_calibrate_endpoint(client, video):
+    sig = {"roi": [700, 60, 40, 110], "layout": "vertical", "min_score": 0.95, "core_agreement": False}  # deliberately bad
+    samples = [{"t": t, "state": s} for t, s in [(2, "green"), (6, "green"), (10, "green"), (12.5, "amber"),
+                                                  (13.5, "amber"), (14.5, "amber"), (17, "red"), (22, "red"),
+                                                  (27, "red")]]
+    r = client.post(f"/api/videos/{video['id']}/signal-calibrate", json={"signal": sig, "samples": samples})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["current"]["metrics"]["coverage"] == 0
+    rec = body["recommended"]
+    assert rec["metrics"]["coverage"] == 1.0 and rec["metrics"]["safety_errors"] == 0
+    bad = client.post(f"/api/videos/{video['id']}/signal-calibrate", json={"signal": sig, "samples": []})
+    assert bad.status_code == 400
+    # Samples are stored with the config.
+    cfg = client.get(f"/api/videos/{video['id']}/config").json()["config"]
+    cfg["signal"]["samples"] = samples
+    client.put(f"/api/videos/{video['id']}/config", json={"config": cfg})
+    assert len(client.get(f"/api/videos/{video['id']}/config").json()["config"]["signal"]["samples"]) == 9
+
+
 def test_analysis_results(client, analysis):
     aid = analysis["id"]
     assert analysis["stats"]["counts"] == {"potential_violation": 3, "signal_uncertain": 1, "lawful": 7}
