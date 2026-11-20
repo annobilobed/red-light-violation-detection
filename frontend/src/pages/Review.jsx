@@ -16,6 +16,8 @@ export default function Review({ analyses, analysisId, setAnalysisId }) {
   const [reviewer, setReviewer] = useState(() => localStorage.getItem("reviewer") || "");
   const [note, setNote] = useState("");
   const [error, setError] = useState(null);
+  const [anonMode, setAnonMode] = useState("standard");
+  const [showAnon, setShowAnon] = useState(false);
 
   const q = new URLSearchParams({ analysis_id: analysisId ?? "", outcome, review_status: status }).toString();
   const events = useFetch(analysisId ? `/api/events?${q}` : null);
@@ -31,9 +33,21 @@ export default function Review({ analyses, analysisId, setAnalysisId }) {
 
   useEffect(() => {
     setNote(ev?.review_note || "");
+    setShowAnon(false);
   }, [ev?.id]);
 
   useEffect(() => localStorage.setItem("reviewer", reviewer), [reviewer]);
+
+  const signAnon = async (checked) => {
+    if (!ev) return;
+    setError(null);
+    try {
+      await api.patch(`/api/events/${ev.id}/anon-check`, { checked, reviewer });
+      events.reload();
+    } catch (e) {
+      setError(e);
+    }
+  };
 
   const idx = list.findIndex((e) => e.id === selected);
   const move = (d) => {
@@ -120,7 +134,10 @@ export default function Review({ analyses, analysisId, setAnalysisId }) {
                   <span>
                     #{e.track_id} {e.vehicle_class}
                   </span>
-                  <span className={`review-tag ${e.review_status}`}>{e.review_status}</span>
+                  <span className={`review-tag ${e.review_status}`}>
+                    {e.review_status}
+                    {e.anon_checked && <span title="Anonymisation checked"> · anon ✓</span>}
+                  </span>
                 </button>
               ))}
             </div>
@@ -202,6 +219,45 @@ export default function Review({ analyses, analysisId, setAnalysisId }) {
                       <kbd>j</kbd>/<kbd>k</kbd> next/previous
                     </span>
                   </div>
+                  {ev.has_snapshot && (
+                    <section className="anon-check">
+                      <h4>Anonymisation check (before sharing or publishing)</h4>
+                      {!showAnon ? (
+                        <button onClick={() => setShowAnon(true)}>Show anonymised still</button>
+                      ) : (
+                        <>
+                          <div className="toolbar">
+                            <label className="field small">
+                              <span>Mode</span>
+                              <select value={anonMode} onChange={(e) => setAnonMode(e.target.value)}>
+                                <option value="standard">Blur faces, plates, drivers, people's heads</option>
+                                <option value="strong">Pixelate whole vehicles and people</option>
+                              </select>
+                            </label>
+                          </div>
+                          <img key={`${ev.id}-${anonMode}`} src={`/api/events/${ev.id}/snapshot?anonymise=${anonMode}`} className="clip" alt="anonymised still" />
+                          <p className="muted small">
+                            Look for any readable number plate, face or other identifying detail. If you find one, do not sign off: use the stronger mode or
+                            leave this event out of published material.
+                          </p>
+                        </>
+                      )}
+                      {ev.anon_checked ? (
+                        <div className="alert ok small">
+                          Checked by {ev.anon_checked_by} ({ev.anon_checked_at}).{" "}
+                          <button className="link" onClick={() => signAnon(false)}>
+                            Withdraw
+                          </button>
+                        </div>
+                      ) : (
+                        showAnon && (
+                          <button onClick={() => signAnon(true)} disabled={!reviewer.trim()} title={reviewer.trim() ? "" : "Enter your initials above first"}>
+                            I checked this anonymised still: no readable plate or face
+                          </button>
+                        )
+                      )}
+                    </section>
+                  )}
                 </>
               ) : (
                 <Empty>Select an event.</Empty>

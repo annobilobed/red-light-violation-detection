@@ -16,7 +16,7 @@ CSV_FIELDS = [
     "event_id", "analysis_id", "video", "location", "cape_coast_footage", "track_id", "vehicle_class",
     "outcome", "crossing_time_s", "crossing_frame", "signal_state_at_crossing", "red_onset_s",
     "red_onset_exact", "time_since_red_s", "detection_conf", "review_status", "reviewer",
-    "review_note", "reviewed_at",
+    "review_note", "reviewed_at", "anonymisation_checked_by",
 ]
 
 OUTCOME_LABELS = {
@@ -41,6 +41,7 @@ def events_csv(events: Iterable[dict]) -> str:
             "red_onset_exact": e["red_onset_exact"], "time_since_red_s": e["time_since_red_s"],
             "detection_conf": e["det_conf"], "review_status": e["review_status"], "reviewer": e["reviewer"],
             "review_note": e["review_note"], "reviewed_at": e["reviewed_at"],
+            "anonymisation_checked_by": e.get("anon_checked_by", "") if e.get("anon_checked") else "",
         })
     return buf.getvalue()
 

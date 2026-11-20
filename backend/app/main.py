@@ -56,7 +56,13 @@ class Review(BaseModel):
     note: str = ""
 
 
+class AnonCheck(BaseModel):
+    checked: bool
+    reviewer: str = ""
+
+
 class EvidenceExport(BaseModel):
+    only_anon_checked: bool = False
     anonymise: Optional[str] = "standard"
     review_status: Optional[str] = None
     outcome: Optional[str] = "potential_violation"
@@ -96,7 +102,9 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
     # ---------------- system ----------------
     @app.get("/api/health")
     def health():
+        from .pipeline.privacy import FaceDetector
         return {"status": "ok", "ffmpeg": ffmpeg_available(), "haar_cascades": haar_available(),
+                "face_detector": FaceDetector().name,
                 "data_dir": str(svc.data)}
 
     @app.get("/api/models")
@@ -192,7 +200,7 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
     @app.post("/api/analyses/{aid}/export-evidence")
     def export_evidence(aid: int, body: EvidenceExport):
         path = svc.export_evidence_zip(aid, body.anonymise or None, body.review_status or None,
-                                       body.outcome or None)
+                                       body.outcome or None, body.only_anon_checked)
         return {"url": svc.file_url(path), "filename": path.name}
 
     @app.get("/api/events.csv")
@@ -215,8 +223,14 @@ def create_app(data_dir: Optional[str | Path] = None) -> FastAPI:
         return svc.review_event(eid, body.status, body.reviewer, body.note)
 
     @app.get("/api/events/{eid}/snapshot")
-    def snapshot(eid: int):
+    def snapshot(eid: int, anonymise: Optional[str] = None):
+        if anonymise:
+            return FileResponse(svc.anonymised_snapshot(eid, anonymise), media_type="image/jpeg")
         return FileResponse(svc.event_file(eid, "snapshot"), media_type="image/jpeg")
+
+    @app.patch("/api/events/{eid}/anon-check")
+    def anon_check(eid: int, body: AnonCheck):
+        return svc.set_anon_checked(eid, body.checked, body.reviewer)
 
     @app.get("/api/events/{eid}/clip")
     def clip(eid: int):

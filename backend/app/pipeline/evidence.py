@@ -171,7 +171,7 @@ def banner_for(c: Crossing) -> str:
 def render_event_evidence(video_path: str | Path, crossing: Crossing, tracks: TrackStore,
                           timeline: SignalTimeline, cfg: AnalysisConfig, out_dir: str | Path,
                           stem: str, anonymise: Optional[str] = None,
-                          fps: Optional[float] = None) -> dict:
+                          fps: Optional[float] = None, person_weights: Optional[str] = None) -> dict:
     """Write ``<stem>.jpg`` (crossing frame) and ``<stem>.mp4`` (clip).
 
     ``anonymise``: None, "standard" or "strong".
@@ -199,7 +199,7 @@ def render_event_evidence(video_path: str | Path, crossing: Crossing, tracks: Tr
             break
         dets = tracks.nearest(idx, stride - 1)
         if anonymise:
-            frame = anonymise_frame(frame, dets, anonymise)
+            frame = anonymise_frame(frame, dets, anonymise, person_weights)
         state = timeline.state_at_frame(idx)
         img = draw_overlay(frame, cfg, dets, state, crossing.track_id, banner, idx / fps)
         if writer is None:
@@ -215,20 +215,21 @@ def render_event_evidence(video_path: str | Path, crossing: Crossing, tracks: Tr
         writer.close()
         h264 = writer.encoded_h264
     if not wrote_snapshot:
-        render_snapshot(video_path, crossing, tracks, timeline, cfg, snapshot_path, anonymise, fps)
+        render_snapshot(video_path, crossing, tracks, timeline, cfg, snapshot_path, anonymise, fps, person_weights)
     return {"snapshot": str(snapshot_path), "clip": str(clip_path) if writer else None,
             "clip_h264": h264, "clip_start_s": start / fps, "clip_end_s": idx / fps}
 
 
 def render_snapshot(video_path: str | Path, crossing: Crossing, tracks: TrackStore,
                     timeline: SignalTimeline, cfg: AnalysisConfig, path: str | Path,
-                    anonymise: Optional[str] = None, fps: Optional[float] = None) -> str:
+                    anonymise: Optional[str] = None, fps: Optional[float] = None,
+                    person_weights: Optional[str] = None) -> str:
     """Annotated still of the crossing frame (optionally anonymised)."""
     fps = fps or probe_video(video_path)["fps"]
     frame = read_frame_at(video_path, crossing.crossing_frame / fps)
     dets = tracks.get(crossing.crossing_frame)
     if anonymise:
-        frame = anonymise_frame(frame, dets, anonymise)
+        frame = anonymise_frame(frame, dets, anonymise, person_weights)
     img = draw_overlay(frame, cfg, dets, timeline.state_at_frame(crossing.crossing_frame),
                        crossing.track_id, banner_for(crossing), crossing.crossing_frame / fps)
     cv2.imwrite(str(path), img, [cv2.IMWRITE_JPEG_QUALITY, 90])

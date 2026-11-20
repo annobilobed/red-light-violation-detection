@@ -181,6 +181,26 @@ def test_evidence_zip_anonymised(client, analysis):
     assert bad.status_code == 400
 
 
+def test_anonymisation_check_flow(client, analysis):
+    aid = analysis["id"]
+    pv = client.get("/api/events", params={"analysis_id": aid, "outcome": "potential_violation"}).json()
+    snap = client.get(f"/api/events/{pv[0]['id']}/snapshot", params={"anonymise": "standard"})
+    assert snap.status_code == 200 and snap.content[:2] == b"\xff\xd8"
+    assert client.get(f"/api/events/{pv[0]['id']}/snapshot", params={"anonymise": "x"}).status_code == 400
+    # Nothing signed off yet -> filtered export refused.
+    r = client.post(f"/api/analyses/{aid}/export-evidence", json={"anonymise": "standard", "only_anon_checked": True})
+    assert r.status_code == 400
+    assert client.patch(f"/api/events/{pv[0]['id']}/anon-check", json={"checked": True}).status_code == 400
+    e = client.patch(f"/api/events/{pv[0]['id']}/anon-check", json={"checked": True, "reviewer": "QA"}).json()
+    assert e["anon_checked"] is True and e["anon_checked_by"] == "QA"
+    r = client.post(f"/api/analyses/{aid}/export-evidence", json={"anonymise": "standard", "only_anon_checked": True})
+    z = zipfile.ZipFile(io.BytesIO(client.get(r.json()["url"]).content))
+    assert sum(n.endswith(".jpg") for n in z.namelist()) == 1
+    assert "checked by QA" in z.read("README.txt").decode()
+    e = client.patch(f"/api/events/{pv[0]['id']}/anon-check", json={"checked": False}).json()
+    assert e["anon_checked"] is False
+
+
 def test_accident_demo(client, video):
     r = client.post("/api/accident", json={"video_id": video["id"], "collision_t": 20, "before_s": 2, "after_s": 2})
     assert r.status_code == 200, r.text

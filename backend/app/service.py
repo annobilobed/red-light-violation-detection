@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import threading
@@ -57,6 +58,15 @@ class BadRequest(Exception):
 def _safe_name(name: str) -> str:
     name = Path(name).name
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)[:120] or "video"
+
+
+def person_weights_for(model: Optional[str]) -> Optional[str]:
+    """Weights used to find people for anonymisation: the stock COCO nano
+    model (it has a 'person' class; fine-tuned vehicle models may not).
+    None for the synthetic scripted detector."""
+    if not model or model == "scripted":
+        return None
+    return os.environ.get("RLV_PERSON_WEIGHTS", "yolo11n.pt")
 
 
 class Service:
@@ -394,6 +404,28 @@ class Service:
         self.db.review_event(eid, status, reviewer.strip()[:100], note.strip()[:2000])
         return self.get_event(eid)
 
+    def anonymised_snapshot(self, eid: int, mode: str = "standard") -> Path:
+        """Anonymised still of the crossing frame, for the human check."""
+        if mode not in ANON_MODES:
+            raise BadRequest(f"anonymise must be one of {ANON_MODES}")
+        e = self.db.get_event(eid)
+        if not e:
+            raise NotFound(f"event {eid} not found")
+        a, cfg, timeline, tracks, video, out_dir = self._render_context(e["analysis_id"])
+        path = out_dir / "anonymised" / f"event_{eid}_{mode}.jpg"
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            render_snapshot(video, self._crossing_from_event(e), tracks, timeline, cfg, path, mode,
+                            person_weights=person_weights_for(cfg.detector.model))
+        return path
+
+    def set_anon_checked(self, eid: int, checked: bool, reviewer: str = "") -> dict:
+        self.get_event(eid)
+        if checked and not reviewer.strip():
+            raise BadRequest("Enter your name or initials to sign off the anonymisation check.")
+        self.db.set_anon_checked(eid, checked, reviewer.strip()[:100])
+        return self.get_event(eid)
+
     # ------------------------------------------------------------------
     # Exports
     # ------------------------------------------------------------------
@@ -438,7 +470,8 @@ class Service:
                 tmp.mkdir(exist_ok=True)
                 for e in events:
                     snapshots[e["id"]] = render_snapshot(video, self._crossing_from_event(e), tracks, timeline,
-                                                         cfg, tmp / f"event_{e['id']}_{anonymise}.jpg", anonymise)
+                                                         cfg, tmp / f"event_{e['id']}_{anonymise}.jpg", anonymise,
+                                                         person_weights=person_weights_for(cfg.detector.model))
             else:
                 snapshots = {e["id"]: e["snapshot_path"] for e in events
                              if e.get("snapshot_path") and Path(e["snapshot_path"]).exists()}
@@ -446,13 +479,18 @@ class Service:
 
     def export_evidence_zip(self, aid: int, anonymise: Optional[str] = "standard",
                             review_status: Optional[str] = None,
-                            outcome: Optional[str] = "potential_violation") -> Path:
+                            outcome: Optional[str] = "potential_violation",
+                            only_anon_checked: bool = False) -> Path:
         """Zip of snapshots + clips (+ CSV). With ``anonymise`` set, faces,
         plate regions and drivers are blurred before overlays are drawn."""
         if anonymise is not None and anonymise not in ANON_MODES:
             raise BadRequest(f"anonymise must be one of {ANON_MODES} or empty")
         a, cfg, timeline, tracks, video, out_dir = self._render_context(aid)
         events = self.db.list_events(aid, outcome, review_status)
+        if only_anon_checked:
+            events = [e for e in events if e.get("anon_checked")]
+            if not events:
+                raise BadRequest("No events have a signed-off anonymisation check yet (Review page).")
         tag = anonymise or "original"
         stamp = now_iso().replace(":", "").replace("-", "")[:15]
         zpath = self.data / "exports" / f"analysis{aid}_evidence_{tag}_{stamp}.zip"
@@ -463,7 +501,8 @@ class Service:
                 stem = f"event{e['id']}_track{e['track_id']}_{tag}"
                 if anonymise:
                     ev = render_event_evidence(video, self._crossing_from_event(e), tracks, timeline, cfg,
-                                               work, stem, anonymise=anonymise)
+                                               work, stem, anonymise=anonymise,
+                                               person_weights=person_weights_for(cfg.detector.model))
                     snap, clip = ev["snapshot"], ev["clip"]
                 else:
                     snap, clip = e.get("snapshot_path"), e.get("clip_path")
@@ -477,7 +516,12 @@ class Service:
                 f"Analysis {aid}, video {a['video_filename']}"
                 f" ({'Cape Coast footage' if a['video_is_cape_coast'] else 'NOT Cape Coast footage'}).\n"
                 + (f"Anonymisation: {anonymise} (automatic; check every file before publishing).\n"
-                   if anonymise else "NOT anonymised: do not share or publish.\n")))
+                   if anonymise else "NOT anonymised: do not share or publish.\n")
+                + "Human anonymisation check (anonymised still at the crossing frame):\n"
+                + "".join(f"  event {e['id']}: " + (f"checked by {e['anon_checked_by']} at {e['anon_checked_at']}"
+                                                   if e.get("anon_checked") else "NOT checked") + "\n"
+                          for e in events)
+                + "A check covers the still image; watch each clip before publishing it.\n"))
         shutil.rmtree(work, ignore_errors=True)
         return zpath
 
@@ -498,7 +542,8 @@ class Service:
             tracker = make_tracker(cfg, path)
         out = self.data / "accident" / f"video{vid}_{uuid.uuid4().hex[:6]}"
         try:
-            res = make_sequence(path, collision_t, out, before_s, after_s, tracker=tracker, anonymise=anonymise)
+            res = make_sequence(path, collision_t, out, before_s, after_s, tracker=tracker, anonymise=anonymise,
+                                person_weights=person_weights_for(model or "yolo11n.pt") if anonymise else None)
         except ValueError as exc:
             raise BadRequest(str(exc)) from exc
         res["contact_sheet_url"] = self.file_url(res["contact_sheet"])

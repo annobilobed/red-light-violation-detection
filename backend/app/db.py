@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS events (
     review_status TEXT NOT NULL DEFAULT 'pending',  -- pending, confirmed, rejected, unsure
     reviewer TEXT NOT NULL DEFAULT '',
     review_note TEXT NOT NULL DEFAULT '',
-    reviewed_at TEXT
+    reviewed_at TEXT,
+    anon_checked INTEGER NOT NULL DEFAULT 0,       -- a person checked the anonymised image
+    anon_checked_by TEXT NOT NULL DEFAULT '',
+    anon_checked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_analysis ON events(analysis_id);
 CREATE TABLE IF NOT EXISTS signal_segments (
@@ -84,6 +87,12 @@ class Database:
         self._lock = threading.RLock()
         with self.connect() as con:
             con.executescript(SCHEMA)
+            # Upgrade databases created before the anonymisation check existed.
+            cols = {r[1] for r in con.execute("PRAGMA table_info(events)")}
+            for col, ddl in (("anon_checked", "INTEGER NOT NULL DEFAULT 0"),
+                             ("anon_checked_by", "TEXT NOT NULL DEFAULT ''"), ("anon_checked_at", "TEXT")):
+                if col not in cols:
+                    con.execute(f"ALTER TABLE events ADD COLUMN {col} {ddl}")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -218,6 +227,10 @@ class Database:
         self.execute("UPDATE events SET review_status=?, reviewer=?, review_note=?, reviewed_at=? WHERE id=?",
                      (status, reviewer, note, now_iso() if status != "pending" else None, eid))
 
+    def set_anon_checked(self, eid: int, checked: bool, by: str) -> None:
+        self.execute("UPDATE events SET anon_checked=?, anon_checked_by=?, anon_checked_at=? WHERE id=?",
+                     (int(checked), by if checked else "", now_iso() if checked else None, eid))
+
     def list_segments(self, aid: int) -> list[dict]:
         rows = self.all("SELECT state, start_s, end_s, start_frame, end_frame, onset_exact FROM signal_segments"
                         " WHERE analysis_id=? ORDER BY start_frame", (aid,))
@@ -252,6 +265,8 @@ def _decode_event(r: Optional[dict]) -> Optional[dict]:
         r["red_onset_exact"] = bool(r["red_onset_exact"])
     if "video_is_cape_coast" in r:
         r["video_is_cape_coast"] = bool(r["video_is_cape_coast"])
+    if "anon_checked" in r:
+        r["anon_checked"] = bool(r["anon_checked"])
     r["has_snapshot"] = bool(r.get("snapshot_path"))
     r["has_clip"] = bool(r.get("clip_path"))
     return r

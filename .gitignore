@@ -16,3 +16,5 @@ datasets/
 *.mkv
 frontend/node_modules/
 .DS_Store
+backend/models/*
+!backend/models/README.md

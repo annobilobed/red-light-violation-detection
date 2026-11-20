@@ -17,7 +17,7 @@ export default function Reports({ analyses, analysisId, setAnalysisId }) {
   const segments = useFetch(analysisId ? `/api/analyses/${analysisId}/signal-segments` : null);
   const events = useFetch(analysisId ? `/api/events?analysis_id=${analysisId}` : null);
   const [pdf, setPdf] = useState("none");
-  const [zip, setZip] = useState({ anonymise: "standard", review_status: "" });
+  const [zip, setZip] = useState({ anonymise: "standard", review_status: "", only_anon_checked: true });
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState(null);
   const [error, setError] = useState(null);
@@ -40,7 +40,7 @@ export default function Reports({ analyses, analysisId, setAnalysisId }) {
     setError(null);
     setLink(null);
     try {
-      setLink(await api.post(`/api/analyses/${analysisId}/export-evidence`, { anonymise: zip.anonymise || null, review_status: zip.review_status || null }));
+      setLink(await api.post(`/api/analyses/${analysisId}/export-evidence`, { anonymise: zip.anonymise || null, review_status: zip.review_status || null, only_anon_checked: !!zip.anonymise && zip.only_anon_checked }));
     } catch (e) {
       setError(e);
     } finally {
@@ -155,6 +155,12 @@ export default function Reports({ analyses, analysisId, setAnalysisId }) {
                     <option value="confirmed">Reviewer-confirmed only</option>
                   </select>
                 </label>
+                {zip.anonymise && (
+                  <label className="check">
+                    <input type="checkbox" checked={zip.only_anon_checked} onChange={(e) => setZip({ ...zip, only_anon_checked: e.target.checked })} />
+                    Only events whose anonymised still a person signed off
+                  </label>
+                )}
                 <button className="primary" disabled={busy} onClick={exportZip}>
                   {busy ? "Rendering…" : "Build ZIP"}
                 </button>

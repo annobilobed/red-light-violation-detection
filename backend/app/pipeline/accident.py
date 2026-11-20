@@ -41,6 +41,7 @@ def _draw_tracks(img, dets):
 def make_sequence(video_path: str | Path, collision_t: float, out_dir: str | Path,
                   before_s: float = 3.0, after_s: float = 3.0, n_tiles: int = 9,
                   tracker: Optional[Tracker] = None, anonymise: Optional[str] = None,
+                  person_weights: Optional[str] = None,
                   stem: str = "accident") -> dict:
     meta = probe_video(video_path)
     fps = meta["fps"]
@@ -69,7 +70,7 @@ def make_sequence(video_path: str | Path, collision_t: float, out_dir: str | Pat
             break
         dets = tracker.track(frame, idx) if tracker is not None else []
         if anonymise:
-            frame = anonymise_frame(frame, dets, anonymise)
+            frame = anonymise_frame(frame, dets, anonymise, person_weights)
         img = frame.copy()
         if dets:
             _draw_tracks(img, dets)
