@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Red-light violation detection: a lightweight computer vision prototype (Cape Coast case study)"
+abstract: >-
+  Research prototype that analyses recorded traffic video of a signalised
+  approach: YOLO11 vehicle detection and ByteTrack tracking, signal-state
+  reading from a user-marked region with an explicit uncertain state, a
+  stop-line crossing rule that records potential red-light violations for
+  human review, a review dashboard, anonymised evidence export and
+  evaluation scripts. No number-plate recognition or driver identification.
+authors:
+  - family-names: Annobil
+    given-names: Obed
+    affiliation: "Department of Computer Science, University of Cape Coast, Ghana"
+  - family-names: Wiredu
+    given-names: Ama
+    affiliation: "Department of Computer Science, University of Cape Coast, Ghana"
+  - family-names: Arhin
+    given-names: Gifty
+    affiliation: "Department of Computer Science, University of Cape Coast, Ghana"
+license: MIT
+repository-code: "https://github.com/annobilobed/red-light-violation-detection"
+version: "1.0.0"
+date-released: "2026-11-20"
+keywords:
+  - red-light violation
+  - computer vision
+  - YOLO
+  - object tracking
+  - intelligent transportation systems
+  - Ghana

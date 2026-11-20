@@ -143,3 +143,11 @@ docs/HOW_IT_WORKS.md    component-by-component explanation
 - Detection, tracking, signal-state recognition and end-to-end violation detection are evaluated separately, each with its own metrics.
 - Results from footage not marked as Cape Coast carry a "Not Cape Coast footage" label in the dashboard, CSV, PDF and ZIP.
 - Evidence meant for sharing is anonymised automatically (faces, plate regions and drivers are blurred). Plates are never read. A person must check anonymised files before publishing them.
+
+## Citation
+
+If you use this software, cite it with the DOI shown on the repository's Zenodo badge (GitHub's "Cite this repository" button uses `CITATION.cff`).
+
+## Licence
+
+The code in this repository is released under the MIT licence (`LICENSE`). It depends on [Ultralytics](https://github.com/ultralytics/ultralytics), which is licensed separately under AGPL-3.0 (or an Ultralytics enterprise licence); check those terms before distributing or deploying a system built on it. The real signal-head images in `backend/tests/fixtures/real_lamps/` are from a third-party MIT-licensed dataset (see the licence file in that folder).
